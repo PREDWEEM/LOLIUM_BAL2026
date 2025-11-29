@@ -1,5 +1,5 @@
 # ===============================================================
-# 🌾 PREDWEEM v7.2 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM v7.2 — LOLIUM BALCARCE 2026
 # - ANN → EMERREL diaria
 # - Post-proceso: recorte negativos, suavizado opcional, acumulado
 # - Percentiles d25–d95 calculados sobre la curva disponible (truncada)
@@ -19,7 +19,7 @@ from pathlib import Path
 # 🔧 CONFIG STREAMLIT
 # ===============================================================
 st.set_page_config(
-    page_title="PREDWEEM v7.2 – LOLIUM TA 2026",
+    page_title="PREDWEEM v7.2 – LOLIUM BAL 2026",
     layout="wide",
 )
 
@@ -38,7 +38,7 @@ def safe(fn, msg):
 # ===============================================================
 # 🔧 API METEOBAHIA (7 días) — OPCIONAL (no usada en esta versión)
 # ===============================================================
-API_URL = "https://meteobahia.com.ar/scripts/forecast/for-ta.xml"
+API_URL = "https://meteobahia.com.ar/scripts/forecast/for-bal.xml"
 
 def _to_float(x):
     try:
@@ -236,7 +236,7 @@ def radar_multiseries(values_dict, labels, title):
 # ===============================================================
 # 🔧 UI PRINCIPAL
 # ===============================================================
-st.title("🌾 PREDWEEM v7.2 — LOLIUM TRES ARROYOS 2026")
+st.title("🌾 PREDWEEM v7.2 — LOLIUM BALCARCE 2026")
 
 # ---- Controles de post-proceso en el sidebar ----
 with st.sidebar:
