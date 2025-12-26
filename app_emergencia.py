@@ -199,10 +199,9 @@ df["EMERREL"] = emerrel
 df["EMERAC"]  = emerac
 
 # ===============================================================
-# ⛔ REGLA AGRONÓMICA: NO EMERGENCIA ANTES DE JD 50
-# EMERREL = 0 desde JD 1 a 49 inclusive
+# ⛔ REGLA AGRONÓMICA: NO EMERGENCIA ANTES DE JD 15
 # ===============================================================
-mask_pre = df["Julian_days"] <= 49
+mask_pre = df["Julian_days"] <= 15
 
 df.loc[mask_pre, "EMERREL"] = 0.0
 
