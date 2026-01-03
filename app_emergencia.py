@@ -22,6 +22,12 @@ st.markdown("""
 footer {visibility: hidden;}
 header [data-testid="stToolbar"] {visibility: hidden;}
 .stAppDeployButton {display: none;}
+.stMetric { 
+    background-color: #ffffff; 
+    padding: 15px; 
+    border-radius: 10px; 
+    border: 1px solid #e2e8f0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -77,7 +83,7 @@ def load_models():
         return None, None
 
 # ===============================================================
-# 📂 GESTIÓN DE DATOS (CARGA Y DESCARGA)
+# 📂 GESTIÓN DE DATOS
 # ===============================================================
 st.sidebar.header("📂 Gestión de Datos")
 uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel o CSV)", type=["xlsx", "csv"])
@@ -86,30 +92,30 @@ def get_data(file_input):
     try:
         if file_input is not None:
             if file_input.name.endswith('.csv'):
-                return pd.read_csv(file_input, parse_dates=["Fecha"])
+                df = pd.read_csv(file_input, parse_dates=["Fecha"])
             else:
-                return pd.read_excel(file_input, parse_dates=["Fecha"])
+                df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
             path_fixed = BASE / "meteo_daily.csv"
             if path_fixed.exists():
-                return pd.read_csv(path_fixed, parse_dates=["Fecha"])
-            return None
+                df = pd.read_csv(path_fixed, parse_dates=["Fecha"])
+            else: return None
+        
+        # Estandarización de columnas
+        df.columns = [c.upper().strip() for c in df.columns]
+        mapeo = {'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'}
+        df = df.rename(columns=mapeo)
+        return df
     except Exception as e:
         st.error(f"Error al leer datos: {e}")
         return None
 
-# Carga de modelos e inicio de lógica
 modelo_ann, cluster_model = load_models()
 df = get_data(uploaded_file)
 
 if df is not None and modelo_ann is not None:
-    # Limpieza y preparación
-    cols_necesarias = ["Fecha", "TMAX", "TMIN", "Prec"]
-    if not all(col in df.columns for col in cols_necesarias):
-        st.error(f"El archivo debe contener las columnas: {cols_necesarias}")
-        st.stop()
-        
-    df = df.dropna(subset=cols_necesarias).sort_values("Fecha").reset_index(drop=True)
+    # Preparación de datos
+    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
     # Predicción ANN
@@ -119,19 +125,15 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     df["EMERAC"] = df["EMERREL"].cumsum()
     
-    # Cálculo de Riesgo
-    max_er = df["EMERREL"].max()
-    df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
-
-    # BOTÓN DE DESCARGA EN SIDEBAR
+    # Exportación
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Predicciones')
     
     st.sidebar.download_button(
-        label="📥 Descargar Predicciones (Excel)",
+        label="📥 Descargar Predicciones",
         data=output.getvalue(),
-        file_name="predicciones_lolium_predweem.xlsx",
+        file_name="predicciones_lolium_2026.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -140,23 +142,44 @@ if df is not None and modelo_ann is not None:
     # ===============================================================
     st.title("🌾 PREDWEEM vK3 — LOLIUM BALCARCE 2026")
     
-    # Mapa de Riesgo
+    # --- MAPA DE CALOR BASADO EN EMERGENCIA RELATIVA ---
+    # Escala discreta: 0-0.49 Verde | 0.5-0.9 Amarillo | > 0.9 Rojo
+    # Fijamos zmax=1.0 para que la escala sea absoluta
+    custom_colorscale = [
+        [0.0, "green"],
+        [0.49, "green"],
+        [0.49, "yellow"],
+        [0.90, "yellow"],
+        [0.90, "red"],
+        [1.0, "red"]
+    ]
+
     fig_risk = go.Figure(data=go.Heatmap(
-        z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
-        colorscale='Viridis', zmin=0, zmax=1,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=200, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=10))
+        z=[df["EMERREL"].values], 
+        x=df["Fecha"], 
+        y=["Intensidad"],
+        colorscale=custom_colorscale, 
+        zmin=0, zmax=1,
+        showscale=True,
+        hovertemplate="<b>%{x|%d-%b}</b><br>Emergencia Rel: %{z:.3f}<extra></extra>"))
+    
+    fig_risk.update_layout(
+        height=180, 
+        title="Mapa Semáforo: Tasa de Emergencia Diaria", 
+        margin=dict(t=50, b=10, l=10, r=10)
+    )
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # Clasificación Funcional
+    # --- ANÁLISIS DE PATRONES ---
     st.divider()
-    st.header("🌾 Análisis Funcional de Patrones")
+    st.header("📊 Análisis Funcional de Patrones")
 
+    max_er = df["EMERREL"].max()
     UMBRAL_RELEVANCIA = 0.25
+    
     if max_er < UMBRAL_RELEVANCIA:
-        st.warning(f"⚠️ Pico máximo ({max_er:.3f}) por debajo del umbral de {UMBRAL_RELEVANCIA}. No se asigna patrón funcional.")
+        st.warning(f"⚠️ Actividad de emergencia baja (Pico: {max_er:.3f}). No se detecta patrón predominante.")
     else:
-        # Lógica DTW
         JD_COMMON = cluster_model["JD_common"]
         curves_interp = cluster_model["curves_interp"]
         meds_idx = cluster_model["medoids_k3"]
@@ -169,28 +192,29 @@ if df is not None and modelo_ann is not None:
         cluster_pred = np.argmin(dists)
 
         names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
-        colors = {0: "blue", 1: "green", 2: "orange"}
+        colors = {0: "#1f77b4", 1: "#2ca02c", 2: "#ff7f0e"}
         
-        st.markdown(f"### Patrón Asignado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
+        st.markdown(f"### Patrón de Emergencia Detectado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
 
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            fig_cmp, ax = plt.subplots(figsize=(10, 4))
             ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón de Referencia", color=colors[cluster_pred], ls="--")
-            ax.set_title("Ajuste a Patrones Históricos")
+            ax.plot(JD_COMMON, meds[cluster_pred], label="Referencia Histórica", color=colors[cluster_pred], ls="--", alpha=0.8)
+            ax.set_ylabel("Emergencia Normalizada")
+            ax.set_xlabel("Día Juliano")
             ax.legend()
             st.pyplot(fig_cmp)
-        with c2:
+        with col2:
             cert = 1 - (min(dists) / sum(dists))
-            st.metric("Certidumbre de Patrón", f"{cert:.1%}")
-            st.info(f"El patrón '{names[cluster_pred]}' es el que mejor describe la forma de emergencia en este lote.")
+            st.metric("Certidumbre del Ajuste", f"{cert:.1%}")
+            st.info(f"El comportamiento observado este año coincide con el patrón funcional **{names[cluster_pred]}**.")
 
-    with st.expander("🔍 Ver tabla de datos"):
-        st.dataframe(df.style.format(precision=3))
+    with st.expander("🔍 Ver tabla de datos crudos"):
+        st.dataframe(df.style.format(subset=["EMERREL", "EMERAC"], precision=4))
 
 else:
-    st.warning("👈 Por favor, sube un archivo o coloca 'meteo_daily.csv' en la carpeta raíz.")
+    st.info("👋 Bienvenida/o a PREDWEEM. Por favor, sube un archivo meteorológico en el panel lateral para comenzar.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Formato: Fecha, TMAX, TMIN, Prec")
+st.sidebar.caption("PREDWEEM vK3 | Balcarce 2026")
