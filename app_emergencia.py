@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM vK3 — LOLIUM BALCARCE 2026
 # Script Corregido y Unificado (Plotly + Robustez)
 # ===============================================================
 
@@ -14,7 +14,7 @@ from pathlib import Path
 # ---------------------------------------------------------
 # CONFIGURACIÓN INICIAL
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – TRES ARROYOS", layout="wide", page_icon="🌾")
+st.set_page_config(page_title="PREDWEEM vK3 – BALCARCE", layout="wide", page_icon="🌾")
 
 # CSS para limpiar la interfaz
 hide_st_style = """
@@ -118,7 +118,7 @@ def load_models():
 # 2. UI Y CARGA DE DATOS
 # ---------------------------------------------------------
 st.sidebar.title("🌾 PREDWEEM vK3")
-st.sidebar.caption("Lolium TRES ARROYOS 2026")
+st.sidebar.caption("Lolium BALCARCE 2026")
 
 umbral_alerta = st.sidebar.slider("Umbral de Alerta (Emergencia)", 0.1, 1.0, 0.5, 0.05)
 archivo_subido = st.sidebar.file_uploader("Subir Clima (Excel/CSV)", type=["xlsx", "csv"])
