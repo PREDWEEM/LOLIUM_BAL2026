@@ -159,7 +159,7 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 
     
     # --- VISUALIZACIÓN ---
-    st.title("🌾 PREDWEEM vK3 — TRES ARROYOS 2026")
+    st.title("🌾 PREDWEEM vK3 — BALCARCE 2026")
 
     # A. MAPA SEMAFÓRICO
     colorscale = [[0, "#dcfce7"], [0.49, "#16a34a"], [0.49, "#facc15"], [0.9, "#eab308"], [0.9, "#ef4444"], [1, "#b91c1c"]]
