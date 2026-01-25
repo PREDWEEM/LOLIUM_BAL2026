@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK3 — LOLIUM TRES ARROYOS 2026
-# Fusión: Monitor de Ventana (App A) + Análisis de Patrones (App B)
+# Actualización: Motor de Tiempo Térmico con Ventana Activa (Bio-Límites)
 # ===============================================================
 
 import streamlit as st
@@ -38,6 +38,16 @@ st.markdown("""
         border-radius: 10px; 
         border: 1px solid #e2e8f0;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    /* Estilo para mensajes de alerta personalizados */
+    .bio-alert {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+        margin-bottom: 10px;
+        font-size: 0.9em;
     }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -170,7 +180,6 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-# Logo (si existe URL online o local, usamos la URL del repo del código A)
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
@@ -179,12 +188,25 @@ archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "
 df = get_data(archivo_usuario)
 
 st.sidebar.divider()
-st.sidebar.markdown("**Parámetros de Alerta**")
-umbral_er = st.sidebar.slider("Umbral Emergencia Diaria", 0.05, 0.80, 0.50)
+st.sidebar.markdown("**Parámetros de Emergencia**")
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria", 0.05, 0.80, 0.50)
 
-st.sidebar.markdown("**Ventana Térmica (°Cd)**")
-dga_optimo = st.sidebar.number_input("Objetivo Óptimo", value=600, step=50)
-dga_critico = st.sidebar.number_input("Límite Crítico", value=700, step=50)
+st.sidebar.divider()
+st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
+st.sidebar.caption("Define el rango donde la planta acumula tiempo térmico.")
+
+# --- NUEVOS CONTROLES TÉRMICOS ---
+col_t1, col_t2 = st.sidebar.columns(2)
+with col_t1:
+    t_base_val = st.number_input("T Base", value=2.0, step=0.5, help="Mínima biológica")
+with col_t2:
+    t_opt_max = st.number_input("T Óptima Max", value=25.0, step=1.0, help="Inicio de estrés")
+
+t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 40.0, 30.0, help="Temperatura donde el desarrollo se detiene por estrés.")
+
+st.sidebar.markdown("**Objetivos Acumulados (°Cd)**")
+dga_optimo = st.sidebar.number_input("Objetivo de Control", value=600, step=50)
+dga_critico = st.sidebar.number_input("Límite Fin Ventana", value=700, step=50)
 
 st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
 
@@ -205,31 +227,27 @@ if df is not None and modelo_ann is not None:
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
     
-    
-    # C. Cálculo de Grados Día con Ventana Térmica Activa
+    # C. CÁLCULO DE GRADOS DÍA CON VENTANA TÉRMICA ACTIVA (MODIFICADO)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
-    
-    def calcular_dg_ventana(t_med, t_max_func, t_crit):
-        # 1. Si está por debajo de la base, no acumula
-        if t_med <= t_base:
-            return 0
-        
-        # 2. Si está en el rango óptimo funcional (e.g., 5-25°C)
-        if t_med <= t_max_func:
-            return t_med - t_base
-        
-        # 3. Si está en el rango de estrés (ponderación descendente)
-        elif t_med < t_crit:
-            # Factor de reducción lineal de 1 a 0 entre t_max_func y t_crit
-            factor_forma = (t_crit - t_med) / (t_crit - t_max_func)
-            return (t_med - t_base) * factor_forma
-        
-        # 4. Si supera la temperatura crítica, el metabolismo/emergencia se detiene
-        else:
-            return 0
 
-    # Aplicar la función fila por fila
-    df["DG"] = df["Tmedia"].apply(lambda x: calcular_dg_ventana(x, t_opt_max, t_critica))
+    def calcular_dg_bio(row):
+        t = row["Tmedia"]
+        # 1. Debajo de base: 0 acumulación
+        if t <= t_base_val:
+            return 0.0
+        # 2. Rango Óptimo: Acumulación lineal completa
+        elif t <= t_opt_max:
+            return t - t_base_val
+        # 3. Rango de Estrés: Acumulación penalizada
+        elif t < t_critica:
+            # Factor disminuye de 1 a 0 a medida que se acerca a T crítica
+            factor = (t_critica - t) / (t_critica - t_opt_max)
+            return (t - t_base_val) * factor
+        # 4. Sobre Crítica: 0 acumulación (Stress Stop)
+        else:
+            return 0.0
+
+    df["DG"] = df.apply(calcular_dg_bio, axis=1)
     
     # -----------------------------------------------------
     # VISUALIZACIÓN
@@ -240,7 +258,7 @@ if df is not None and modelo_ann is not None:
     colorscale_hard = [
         [0.00, "green"], [0.49, "green"],  
         [0.49, "yellow"], [0.90, "yellow"], 
-        [0.90, "red"], [1.00, "red"]     
+        [0.90, "red"], [1.00, "red"]      
     ]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
@@ -253,7 +271,7 @@ if df is not None and modelo_ann is not None:
     # TABS PARA ORGANIZAR LA INFORMACIÓN
     tab1, tab2 = st.tabs(["📊 MONITOR DE DECISIÓN", "📈 ANÁLISIS ESTRATÉGICO"])
 
-    # --- TAB 1: MONITOR DE VENTANA (Lógica de App A) ---
+    # --- TAB 1: MONITOR DE VENTANA ---
     with tab1:
         col_main, col_gauge = st.columns([2, 1])
         
@@ -267,11 +285,15 @@ if df is not None and modelo_ann is not None:
         
         # Calcular Acumulados si hay ventana
         dga_actual = 0.0
+        dias_stress = 0
         df_ventana = pd.DataFrame()
+        
         if fecha_inicio_ventana:
             df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
             df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
             dga_actual = df_ventana["DGA_cum"].iloc[-1]
+            # Contar días donde la temperatura superó el óptimo (estrés)
+            dias_stress = len(df_ventana[df_ventana["Tmedia"] > t_opt_max])
 
         with col_main:
             # Serie de Tiempo
@@ -285,7 +307,14 @@ if df is not None and modelo_ann is not None:
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
-                st.info(f"📅 **Inicio de Cohorte Detectado:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Acumulando Grados Día desde entonces)")
+                st.info(f"📅 **Inicio de Cohorte:** {fecha_inicio_ventana.strftime('%d-%m-%Y')}")
+                if dias_stress > 0:
+                    st.markdown(f"""
+                    <div class="bio-alert">
+                    🔥 <b>Detección de Estrés Térmico:</b> Se detectaron <b>{dias_stress} días</b> con Tmedia > {t_opt_max}°C. 
+                    La acumulación térmica ha sido penalizada en esos días.
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
                 st.warning("⏳ Esperando pulsos de emergencia significativos para iniciar conteo térmico.")
 
@@ -295,7 +324,7 @@ if df is not None and modelo_ann is not None:
             fig_gauge = go.Figure(go.Indicator(
                 mode = "gauge+number+delta", value = dga_actual,
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "<b>ACUMULACIÓN TÉRMICA</b><br><span style='font-size:0.8em;color:gray'>Grados Días (°Cd)</span>"},
+                title = {'text': "<b>ACUMULACIÓN TÉRMICA</b><br><span style='font-size:0.8em;color:gray'>Grados Días Biológicos</span>"},
                 delta = {'reference': dga_optimo, 'increasing': {'color': "gray"}},
                 gauge = {
                     'axis': {'range': [None, max_axis]},
@@ -319,10 +348,10 @@ if df is not None and modelo_ann is not None:
                 else: estado_texto = "🚫 FUERA DE VENTANA"
             st.metric("Estado Fenológico", estado_texto)
 
-    # --- TAB 2: ANÁLISIS DE PATRONES (Lógica de App B) ---
+    # --- TAB 2: ANÁLISIS DE PATRONES ---
     with tab2:
         st.header("🔍 Clasificación de Patrones (DTW)")
-        st.markdown("Comparativa de la curva acumulada actual vs. Patrones históricos del Sur de Buenos Aires.")
+        st.markdown("Comparativa de la curva acumulada actual vs. Patrones históricos.")
         
         fecha_corte_analisis = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte_analisis].copy()
@@ -386,8 +415,8 @@ if df is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({
-            'Parametro': ['Umbral Alerta', 'Optimo Termico', 'Critico Termico', 'Patron Detectado'],
-            'Valor': [umbral_er, dga_optimo, dga_critico, nombres.get(cluster_pred, "N/A") if 'cluster_pred' in locals() else "N/A"]
+            'Parametro': ['Umbral Alerta', 'Optimo Termico', 'T Critica', 'Patron Detectado'],
+            'Valor': [umbral_er, dga_optimo, t_critica, nombres.get(cluster_pred, "N/A") if 'cluster_pred' in locals() else "N/A"]
         }).to_excel(writer, sheet_name='Reporte', index=False)
         
     st.sidebar.download_button(
