@@ -205,8 +205,31 @@ if df is not None and modelo_ann is not None:
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
     
-    # C. Cálculo de Grados Día (Base 2.0°C)
-    df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0)
+    
+    # C. Cálculo de Grados Día con Ventana Térmica Activa
+    df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    
+    def calcular_dg_ventana(t_med, t_max_func, t_crit):
+        # 1. Si está por debajo de la base, no acumula
+        if t_med <= t_base:
+            return 0
+        
+        # 2. Si está en el rango óptimo funcional (e.g., 5-25°C)
+        if t_med <= t_max_func:
+            return t_med - t_base
+        
+        # 3. Si está en el rango de estrés (ponderación descendente)
+        elif t_med < t_crit:
+            # Factor de reducción lineal de 1 a 0 entre t_max_func y t_crit
+            factor_forma = (t_crit - t_med) / (t_crit - t_max_func)
+            return (t_med - t_base) * factor_forma
+        
+        # 4. Si supera la temperatura crítica, el metabolismo/emergencia se detiene
+        else:
+            return 0
+
+    # Aplicar la función fila por fila
+    df["DG"] = df["Tmedia"].apply(lambda x: calcular_dg_ventana(x, t_opt_max, t_critica))
     
     # -----------------------------------------------------
     # VISUALIZACIÓN
