@@ -446,4 +446,87 @@ if df is not None and modelo_ann is not None:
                             
     # --- TAB 3: ANÁLISIS ---
     with tab3:
-        st.
+        st.header("🔍 Clasificación DTW")
+        fecha_corte = pd.Timestamp("2026-05-01")
+        df_obs = df[df["Fecha"] < fecha_corte].copy()
+
+        if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
+            jd_corte = df_obs["Julian_days"].max()
+            max_e = df_obs["EMERREL"].max() if df_obs["EMERREL"].max() > 0 else 1.0
+            JD_COM = cluster_model["JD_common"]
+            jd_grid = JD_COM[JD_COM <= jd_corte]
+            obs_norm = np.interp(jd_grid, df_obs["Julian_days"], df_obs["EMERREL"] / max_e)
+
+            dists = []
+            for m in cluster_model["curves_interp"]:
+                m_slice = m[JD_COM <= jd_corte]
+                m_norm = m_slice / m_slice.max() if m_slice.max() > 0 else m_slice
+                dists.append(dtw_distance(obs_norm, m_norm))
+
+            pred = int(np.argmin(dists))
+            names = {0: "🌾 Bimodal", 1: "🌱 Temprano", 2: "🍂 Tardío"}
+            cols = {0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}
+            
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                fp = go.Figure()
+                fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón Histórico", line=dict(dash='dash', color=cols.get(pred))))
+                fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
+                st.plotly_chart(fp, use_container_width=True)
+            with c2:
+                st.success(f"### {names.get(pred)}")
+                st.metric("DTW Score", f"{min(dists):.2f}")
+        else:
+             st.info("Datos insuficientes para clasificación DTW (Se requiere actividad antes de Mayo).")
+
+    # --- TAB 4: VISUALIZACIÓN DE CURVA (BIO) ---
+    with tab4:
+        st.subheader("🧪 Curva de Respuesta Fisiológica")
+        st.markdown(f"Así se comporta la acumulación térmica según los parámetros definidos.")
+        
+        # Generar datos sintéticos para el gráfico
+        x_temps = np.linspace(0, 45, 200)
+        y_tt = [calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps]
+        
+        fig_bio = go.Figure()
+        
+        # Curva Principal
+        fig_bio.add_trace(go.Scatter(
+            x=x_temps, y=y_tt, mode='lines', name='Acumulación TT',
+            line=dict(color='#2563eb', width=4),
+            fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.1)'
+        ))
+        
+        # Zonas
+        fig_bio.add_vrect(x0=t_base_val, x1=t_opt_max, fillcolor="green", opacity=0.1, annotation_text="Óptimo", annotation_position="top left")
+        fig_bio.add_vrect(x0=t_opt_max, x1=t_critica, fillcolor="orange", opacity=0.1, annotation_text="Estrés (Penalizado)", annotation_position="top right")
+        fig_bio.add_vrect(x0=t_critica, x1=45, fillcolor="red", opacity=0.1, annotation_text="Inhibición", annotation_position="top right")
+        
+        fig_bio.update_layout(
+            xaxis_title="Temperatura Media Diaria (°C)",
+            yaxis_title="Tiempo Térmico Acumulado (°Cd)",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_bio, use_container_width=True)
+        
+        st.info(f"""
+        **Interpretación:** * Hasta **{t_base_val}°C**: No pasa nada (Dormición/Inactividad).
+        * Entre **{t_base_val}°C y {t_opt_max}°C**: Crecimiento lineal.
+        * Entre **{t_opt_max}°C y {t_critica}°C**: La eficiencia cae rápidamente.
+        * Más de **{t_critica}°C**: El sistema se detiene (TT = 0).
+        """)
+
+    # EXPORTACIÓN
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Data_Diaria')
+        pd.DataFrame({
+            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'Umbral_Pico'],
+            'Valor': [t_base_val, t_opt_max, t_critica, umbral_er]
+        }).to_excel(writer, sheet_name='Bio_Params', index=False)
+        
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
+
+else:
+    st.info("👋 **Bienvenido a PREDWEEM.** Cargue datos climáticos para comenzar.")
