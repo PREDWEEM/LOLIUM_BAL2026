@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.1 — LOLIUM TRES ARROYOS 2026
-# Actualización: Inicio de conteo desde el PRIMER pico + Heatmap
+# 🌾 PREDWEEM INTEGRAL vK4.1 — LOLIUM BALCARCE 2026
+# Actualización: Inicio de conteo desde el PRIMER pico + Precipitaciones
 # ===============================================================
 
 import streamlit as st
@@ -160,11 +160,16 @@ def get_data(file_input):
             else:
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
-            path = BASE / "meteo_daily.csv"
-            if path.exists():
-                df = pd.read_csv(path, parse_dates=["Fecha"])
-            else:
-                return None
+            # Conexión directa a GitHub 
+            github_url = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/meteo_daily.csv"
+            try:
+                df = pd.read_csv(github_url, parse_dates=["Fecha"])
+            except Exception:
+                path = BASE / "meteo_daily.csv"
+                if path.exists():
+                    df = pd.read_csv(path, parse_dates=["Fecha"])
+                else:
+                    return None
         
         df.columns = [c.upper().strip() for c in df.columns]
         mapeo = {
@@ -182,9 +187,6 @@ def get_data(file_input):
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
-
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
-st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ Configuración")
 archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
@@ -227,13 +229,13 @@ if df is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # --- C. RESTRICCIÓN HÍDRICA (NUEVA LÓGICA) ---
+    # --- C. RESTRICCIÓN HÍDRICA (NUEVA LÓGICA BALCARCE) ---
     # Calculamos la lluvia acumulada en una ventana de 7 días (incluyendo el actual)
-    df["Prec_sum_15d"] = df["Prec"].rolling(window=7, min_periods=1).sum()
+    df["Prec_sum_7d"] = df["Prec"].rolling(window=7, min_periods=1).sum()
     
     # Condicional solicitado: Si sum(Prec) < 20mm, EMERREL se capa en 0
     # Esto simula que sin humedad previa no hay "explosión" de emergencia masiva
-    df.loc[df["Prec_sum_15d"] < 20, "EMERREL"] = df["EMERREL"].clip(upper=0)
+    df.loc[df["Prec_sum_7d"] < 20, "EMERREL"] = df["EMERREL"].clip(upper=0)
     
     # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
@@ -294,8 +296,8 @@ if df is not None and modelo_ann is not None:
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Emergencia")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # TABS PRINCIPALES
-    tab1, tab2, tab3 = st.tabs(["📊 MONITOR DE DECISIÓN", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
+    # TABS PRINCIPALES AHORA SON 4
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     # --- TAB 1: MONITOR ---
     with tab1:
@@ -345,9 +347,9 @@ if df is not None and modelo_ann is not None:
             else:
                 st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
 
-        
+
         with col_gauge:
-            # 1. Sincronización de fechas (Hoy es 10 de Feb 2026)
+            # 1. Sincronización de fechas 
             fecha_hoy = pd.Timestamp.now().normalize() 
             if fecha_hoy not in df['Fecha'].values:
                 fecha_hoy = df['Fecha'].max()
@@ -419,92 +421,29 @@ if df is not None and modelo_ann is not None:
 
             fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
-        
-                  
 
-    # --- TAB 2: ANÁLISIS ---
+    # --- TAB 2: PRECIPITACIONES ---
     with tab2:
-        st.header("🔍 Clasificación DTW")
-        fecha_corte = pd.Timestamp("2026-05-01")
-        df_obs = df[df["Fecha"] < fecha_corte].copy()
-
-        if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
-            jd_corte = df_obs["Julian_days"].max()
-            max_e = df_obs["EMERREL"].max() if df_obs["EMERREL"].max() > 0 else 1.0
-            JD_COM = cluster_model["JD_common"]
-            jd_grid = JD_COM[JD_COM <= jd_corte]
-            obs_norm = np.interp(jd_grid, df_obs["Julian_days"], df_obs["EMERREL"] / max_e)
-
-            dists = []
-            for m in cluster_model["curves_interp"]:
-                m_slice = m[JD_COM <= jd_corte]
-                m_norm = m_slice / m_slice.max() if m_slice.max() > 0 else m_slice
-                dists.append(dtw_distance(obs_norm, m_norm))
-
-            pred = int(np.argmin(dists))
-            names = {0: "🌾 Bimodal", 1: "🌱 Temprano", 2: "🍂 Tardío"}
-            cols = {0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}
-            
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                fp = go.Figure()
-                fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón Histórico", line=dict(dash='dash', color=cols.get(pred))))
-                fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
-                st.plotly_chart(fp, use_container_width=True)
-            with c2:
-                st.success(f"### {names.get(pred)}")
-                st.metric("DTW Score", f"{min(dists):.2f}")
-        else:
-             st.info("Datos insuficientes para clasificación DTW (Se requiere actividad antes de Mayo).")
-
-    # --- TAB 3: VISUALIZACIÓN DE CURVA (BIO) ---
-    with tab3:
-        st.subheader("🧪 Curva de Respuesta Fisiológica")
-        st.markdown(f"Así se comporta la acumulación térmica según los parámetros definidos.")
+        st.header("🌧️ Dinámica de Precipitaciones Diarias")
         
-        # Generar datos sintéticos para el gráfico
-        x_temps = np.linspace(0, 45, 200)
-        y_tt = [calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps]
+        fig_prec = go.Figure()
         
-        fig_bio = go.Figure()
-        
-        # Curva Principal
-        fig_bio.add_trace(go.Scatter(
-            x=x_temps, y=y_tt, mode='lines', name='Acumulación TT',
-            line=dict(color='#2563eb', width=4),
-            fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.1)'
+        # Gráfico de barras para lluvia diaria unicamente
+        fig_prec.add_trace(go.Bar(
+            x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)',
+            marker_color='#60a5fa', opacity=0.8
         ))
-        
-        # Zonas
-        fig_bio.add_vrect(x0=t_base_val, x1=t_opt_max, fillcolor="green", opacity=0.1, annotation_text="Óptimo", annotation_position="top left")
-        fig_bio.add_vrect(x0=t_opt_max, x1=t_critica, fillcolor="orange", opacity=0.1, annotation_text="Estrés (Penalizado)", annotation_position="top right")
-        fig_bio.add_vrect(x0=t_critica, x1=45, fillcolor="red", opacity=0.1, annotation_text="Inhibición", annotation_position="top right")
-        
-        fig_bio.update_layout(
-            xaxis_title="Temperatura Media Diaria (°C)",
-            yaxis_title="Tiempo Térmico Acumulado (°Cd)",
+
+        fig_prec.update_layout(
+            title="Precipitación Diaria Registrada",
+            xaxis_title="Fecha",
+            yaxis_title="Milímetros (mm)",
+            hovermode="x unified",
             height=400,
             showlegend=False
         )
-        st.plotly_chart(fig_bio, use_container_width=True)
-        
-        st.info(f"""
-        **Interpretación:** * Hasta **{t_base_val}°C**: No pasa nada (Dormición/Inactividad).
-        * Entre **{t_base_val}°C y {t_opt_max}°C**: Crecimiento lineal.
-        * Entre **{t_opt_max}°C y {t_critica}°C**: La eficiencia cae rápidamente.
-        * Más de **{t_critica}°C**: El sistema se detiene (TT = 0).
-        """)
-
-    # EXPORTACIÓN
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({
-            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'Umbral_Pico'],
-            'Valor': [t_base_val, t_opt_max, t_critica, umbral_er]
-        }).to_excel(writer, sheet_name='Bio_Params', index=False)
-        
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
-
-else:
-    st.info("👋 **Bienvenido a PREDWEEM.** Cargue datos climáticos para comenzar.")
+        st.plotly_chart(fig_prec, use_container_width=True)
+                            
+    # --- TAB 3: ANÁLISIS ---
+    with tab3:
+        st.
