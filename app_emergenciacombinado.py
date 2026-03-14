@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM BALCARCE 2026
-# Actualización: Restricción Hídrica Sigmoide (centro 30 mm) + Relajación Dinámica
+# Actualización: Restricción Hídrica Sigmoide (centro 40 mm) + Relajación Dinámica
 # ===============================================================
 
 import streamlit as st
