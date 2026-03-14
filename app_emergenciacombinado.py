@@ -235,7 +235,7 @@ if df is not None and modelo_ann is not None:
 
     # Factor hídrico sigmoide con valor medio centrado en 30 mm
     # A 30 mm el factor es ~0.50; por debajo penaliza y por encima libera gradualmente
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 30)))
+    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 40)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
     # Relajación dinámica:
