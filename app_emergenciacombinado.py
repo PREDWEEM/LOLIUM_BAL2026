@@ -1,7 +1,9 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM BALCARCE 2026
 # Actualización: Restricción Hídrica Sigmoide (centro 40 mm) + Relajación Dinámica
+# NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 20 mm
 # ===============================================================
 
 import streamlit as st
@@ -233,8 +235,8 @@ if df is not None and modelo_ann is not None:
     # Lluvia acumulada en ventana móvil de 21 días
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
 
-    # Factor hídrico sigmoide con valor medio centrado en 30 mm
-    # A 30 mm el factor es ~0.50; por debajo penaliza y por encima libera gradualmente
+    # Factor hídrico sigmoide con valor medio centrado en 30 mm (nota del autor dice 40mm)
+    # A 40 mm el factor es ~0.50; por debajo penaliza y por encima libera gradualmente
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 40)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
@@ -243,6 +245,9 @@ if df is not None and modelo_ann is not None:
     # - si no, el bloqueo se mantiene hasta JD 25
     jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 25)
     df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0 
+
+    # 🌧️ NUEVA REGLA: Forzar pico de 1.0 frente a eventos puntuales de lluvia >= 20 mm
+    df.loc[df["Prec"] >= 20.0, "EMERREL"] = 1.0
 
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
@@ -530,7 +535,7 @@ if df is not None and modelo_ann is not None:
             'Valor': [t_base_val, t_opt_max, t_critica, umbral_er]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
         
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Balcarce_Report.xlsx")
 
 else:
     st.info("👋 **Bienvenido a PREDWEEM.** Cargue datos climáticos para comenzar.")
