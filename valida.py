@@ -504,8 +504,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
 
-    # 🌧️ NUEVA REGLA: Forzar pico de 1.0 frente a eventos puntuales de lluvia >= 20 mm
-    df.loc[df["Prec"] >= 20.0, "EMERREL"] = 1.0
+    # 🌧️ NUEVA REGLA vK4.4: Forzar pico de 1.0 frente a eventos de lluvia >= 20 mm
+    # RESTRICCIÓN: Solo aplica si el mes NO es enero (1)
+    mask_forzado = (df["Prec"] >= 20.0) & (df["Fecha"].dt.month != 1)
+    df.loc[mask_forzado, "EMERREL"] = 1.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
