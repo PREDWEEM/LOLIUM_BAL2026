@@ -11,7 +11,7 @@
 # - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
 # - Mantenimiento de Restricción Hídrica Sigmoide (40mm) + Relajación Dinámica específica
-# - NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 20 mm
+# - NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 30 mm
 # - NUEVO: Menú de Separación de Flushes activado dinámicamente
 # ===============================================================
 
@@ -506,7 +506,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # 🌧️ NUEVA REGLA vK4.4: Forzar pico de 1.0 frente a eventos de lluvia >= 20 mm
     # RESTRICCIÓN: Solo aplica si el mes NO es enero (1)
-    mask_forzado = (df["Prec"] >= 20.0) & (df["Fecha"].dt.month != 1)
+    mask_forzado = (df["Prec"] >= 30.0) & (df["Fecha"].dt.month != 1)
     df.loc[mask_forzado, "EMERREL"] = 1.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
