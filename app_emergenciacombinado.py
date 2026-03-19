@@ -9,6 +9,7 @@
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
+# - Carga AUTOMÁTICA de datos climáticos desde 'meteo_daily.csv'.
 # - SIN MÓDULO DE VALIDACIÓN (Versión exclusiva para predicción operativa).
 # ===============================================================
 
@@ -115,7 +116,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
-    # Latitud ajustada para Balcarce
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -181,14 +181,22 @@ def load_models():
         st.error(f"Error cargando modelos: {e}")
         return None, None
 
-def load_data(file_uploader, default_name):
+def load_data(file_uploader=None):
+    # 1. Si el usuario sube un archivo manualmente, tiene prioridad.
     if file_uploader:
         return pd.read_excel(file_uploader) if file_uploader.name.endswith((".xlsx", ".xls")) else pd.read_csv(file_uploader)
-    elif (BASE / f"{default_name}.csv").exists():
-        return pd.read_csv(BASE / f"{default_name}.csv")
-    elif (BASE / f"{default_name}.xlsx").exists():
-        return pd.read_excel(BASE / f"{default_name}.xlsx")
-    return None
+    
+    # 2. Carga automática local
+    ruta_local = BASE / "meteo_daily.csv"
+    if ruta_local.exists():
+        return pd.read_csv(ruta_local)
+        
+    # 3. Carga automática desde GitHub (Backup)
+    github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/meteo_daily.csv"
+    try:
+        return pd.read_csv(github_url)
+    except Exception:
+        return None
 
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
@@ -200,8 +208,13 @@ st.sidebar.image(
     use_container_width=True
 )
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("Subir Clima (Balcarce)", type=["xlsx", "csv"])
-df_meteo_raw = load_data(archivo_meteo, "BALCARCE")
+archivo_meteo = st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"], help="Si no subes nada, el sistema leerá automáticamente meteo_daily.csv")
+df_meteo_raw = load_data(archivo_meteo)
+
+if df_meteo_raw is not None:
+    st.sidebar.success("✅ Datos climáticos cargados.")
+else:
+    st.sidebar.error("❌ No se encontró 'meteo_daily.csv' ni se subió ningún archivo.")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
@@ -260,14 +273,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- PREPROCESAMIENTO CLIMA ---
     df = df_meteo_raw.copy()
     df.columns = [c.upper().strip() for c in df.columns]
-    df = df.rename(columns={
-        'FECHA': 'Fecha',
-        'DATE': 'Fecha',
-        'TMAX': 'TMAX',
-        'TMIN': 'TMIN',
-        'PREC': 'Prec',
-        'LLUVIA': 'Prec'
-    })
+    
+    # Mapeo robusto de columnas
+    mapeo = {'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'}
+    df = df.rename(columns=mapeo)
 
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
@@ -586,4 +595,4 @@ if df_meteo_raw is not None and modelo_ann is not None:
     )
 
 else:
-    st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
+    st.info("👋 Bienvenido a PREDWEEM. El sistema está esperando los datos climáticos para comenzar.")
