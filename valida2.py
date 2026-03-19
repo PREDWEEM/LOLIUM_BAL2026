@@ -427,7 +427,7 @@ df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.40)
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
@@ -469,7 +469,7 @@ with col_p2:
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=35.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
 
 st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
@@ -654,10 +654,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     colorscale_hard = [
         [0.0, "green"],
-        [0.14, "green"],
-        [0.15, "yellow"],
-        [0.34, "yellow"],
-        [0.35, "red"],
+        [0.39, "green"],
+        [0.40, "red"],
         [1.0, "red"]
     ]
 
