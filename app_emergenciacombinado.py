@@ -240,7 +240,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=35.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
 
 st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
@@ -343,10 +343,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     colorscale_hard = [
         [0.0, "green"],
-        [0.14, "green"],
-        [0.15, "yellow"],
-        [0.34, "yellow"],
-        [0.35, "red"],
+        [0.39, "green"],
+        [0.40, "red"],
         [1.0, "red"]
     ]
 
