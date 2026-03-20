@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM BALCARCE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM BALCARCE 2026
 # Actualización:
 # - UNIFICACIÓN MECANÍSTICA 100%
-# - BYPASS: Ruptura de dormición temprana por Choque Hídrico.
+# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - BYPASS: Ruptura de dormición temprana por Choque Hídrico (Umbral 0.30).
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
 # - Eliminación total de réplicas (Ecos) en cadena.
 # - Detección agronómica de flushes de campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani.
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud -37.75).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para Ke.
 # ===============================================================
 
@@ -26,7 +28,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BALCARCE vK4.9.6",
+    page_title="PREDWEEM BALCARCE vK4.9.8",
     layout="wide",
     page_icon="🌾"
 )
@@ -426,6 +428,13 @@ st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 # AJUSTADO: Umbral de alerta por defecto a 0.30
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
 
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
+umbral_termoinhibicion = st.sidebar.number_input(
+    "Umbral Termoinhibición (°C)", 
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+)
+
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
@@ -542,7 +551,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
     # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
-    # Detecta "choques hídricos" en otoño temprano que la ANN suele bloquear.
     limite_juliano_temprano = 110 # Aprox. 20 de Abril
     
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
@@ -565,8 +573,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
+    # CORTE HÍDRICO ESTRICTO
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+
+    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    df.loc[mask_inhibicion, "EMERREL"] = 0.0
+
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
@@ -578,6 +595,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     dga_hoy, dga_7dias = 0.0, 0.0
     fecha_inicio_ventana, fecha_control = None, None
     msg_estado = "Esperando pico de emergencia..."
+    dias_stress = 0
 
     if indices_pulso:
         fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
@@ -600,6 +618,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             dga_7dias = dga_hoy
 
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
     # --- MÉTRICAS DE VALIDACIÓN ---
     pearson_r = 0.0
@@ -814,6 +833,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} "
                     f"(Primer pico detectado)"
                 )
+                if dias_stress > 0:
+                    st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
+                
                 if fecha_control:
                     st.error(
                         f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. "
@@ -988,14 +1010,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
             pd.DataFrame({
-                'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'],
-                'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]
+                'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'],
+                'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]
             }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Integral_Balcarce_vK4_9_6_BHS.xlsx"
+        "PREDWEEM_Integral_Balcarce_vK4_9_8.xlsx"
     )
 
 else:
