@@ -423,9 +423,9 @@ df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.50)
+# AJUSTADO: Umbral de alerta por defecto a 0.30
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
 
-# NUEVO: Control para el Bypass Agronómico
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
@@ -470,7 +470,8 @@ col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
     min_dist_picos = st.number_input("Separación Flushes (días)", min_value=1, max_value=45, value=7, step=1)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.50, step=0.05)
+    # AJUSTADO: Umbral mínimo de pico por defecto a 0.30
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
@@ -669,10 +670,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - BALCARCE 2026")
 
+    # AJUSTADO: Escala de colores personalizada (cambio en 0.30)
     colorscale_hard = [
         [0.0, "green"],
-        [0.49, "green"],
-        [0.50, "red"],
+        [0.29, "green"],
+        [0.30, "red"],
         [1.0, "red"]
     ]
 
