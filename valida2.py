@@ -2,17 +2,14 @@
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM BALCARCE 2026
 # Actualización:
-# - UNIFICACIÓN MECANÍSTICA 100%: 
-#   * ELIMINADA la restricción hídrica sigmoide empírica (centro 40 mm).
-#   * ELIMINADA la relajación dinámica empírica (Día Juliano 25).
-#   * ELIMINADO el forzado de pico por lluvias >= 30 mm.
-# - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
-# - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
-# - Detección agronómica de flushes de campo (Bypass SciPy).
+# - UNIFICACIÓN MECANÍSTICA 100%
+# - BYPASS: Ruptura de dormición temprana por Choque Hídrico.
+# - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
+# - Eliminación total de réplicas (Ecos) en cadena.
+# - Detección agronómica de flushes de campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
-# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
-# - Visualización dinámica de la retención de agua en suelo vs Lluvias.
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani.
+# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para Ke.
 # ===============================================================
 
 import streamlit as st
@@ -119,7 +116,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
-    # Latitud ajustada para Balcarce
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -428,6 +424,15 @@ df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.50)
+
+# NUEVO: Control para el Bypass Agronómico
+st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
+umbral_choque_hidrico = st.sidebar.slider(
+    "Choque Hídrico 3 días (mm)", 
+    min_value=20.0, max_value=100.0, value=45.0, 
+    help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
+)
+
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
@@ -534,6 +539,18 @@ if df_meteo_raw is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
+
+    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+    # Detecta "choques hídricos" en otoño temprano que la ANN suele bloquear.
+    limite_juliano_temprano = 110 # Aprox. 20 de Abril
+    
+    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+    
+    # Máscara: Fecha temprana + Lluvia excepcional (según slider)
+    mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    
+    # Asignamos un pulso base (ej. 0.65) SOLO si la red tiró un valor menor.
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL (BHS BALCARCE)
