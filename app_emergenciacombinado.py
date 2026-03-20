@@ -1,12 +1,13 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM BALCARCE 2026
+# 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BALCARCE 2026
 # Actualización:
 # - UNIFICACIÓN MECANÍSTICA 100% (Modo Predicción Pura):
 #   * ELIMINADA la restricción hídrica sigmoide empírica (centro 40 mm).
 #   * ELIMINADA la relajación dinámica empírica (Día Juliano 25).
 #   * ELIMINADO el forzado de pico empírico por lluvias intensas.
+# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
@@ -28,7 +29,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BALCARCE vK4.9.6",
+    page_title="PREDWEEM BALCARCE vK4.9.8",
     layout="wide",
     page_icon="🌾"
 )
@@ -118,6 +119,7 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
+    # Latitud ajustada para Balcarce
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -221,8 +223,14 @@ else:
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
-# AJUSTADO: Umbral de alerta por defecto a 0.30
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
+
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
+umbral_termoinhibicion = st.sidebar.number_input(
+    "Umbral Termoinhibición (°C)", 
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
@@ -303,27 +311,30 @@ if df_meteo_raw is not None and modelo_ann is not None:
     limite_juliano_temprano = 110 # Aprox. 20 de Abril
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     
-    # Máscara: Fecha temprana + Lluvia excepcional (según slider)
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    
-    # Asignamos un pulso base (ej. 0.65) SOLO si la red tiró un valor menor.
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # ---------------------------------------------------------
-    # MÓDULO HÍDRICO SUPERFICIAL (BHS BALCARCE)
+    # MÓDULO HÍDRICO SUPERFICIAL Y TÉRMICO (BHS BALCARCE)
     # ---------------------------------------------------------
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.75)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
     
     humedad_relativa = df["W_superficial"] / w_max_val
-    # Factor hídrico basado en la retención real de agua en el suelo
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
     
-    # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
+    # CORTE HÍDRICO ESTRICTO
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    df.loc[mask_inhibicion, "EMERREL"] = 0.0
+
+    # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
@@ -335,9 +346,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     dga_hoy, dga_7dias = 0.0, 0.0
     fecha_inicio_ventana, fecha_control = None, None
     msg_estado = "Esperando pico de emergencia..."
+    dias_stress = 0
 
     if indices_pulso:
-        fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
+        idx_primer_pico = indices_pulso[0]
+        fecha_inicio_ventana = df.loc[idx_primer_pico, "Fecha"]
+        
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
 
@@ -345,10 +359,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
         if not df_control.empty:
             fecha_control = df_control.iloc[0]["Fecha"]
 
-        dga_hoy = df.loc[
-            (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy),
-            "DG"
-        ].sum()
+        mask_hoy = (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)
+        dga_hoy = df.loc[mask_hoy, "DG"].sum()
 
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
         if idx_hoy + 8 <= len(df):
@@ -357,6 +369,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             dga_7dias = dga_hoy
 
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
@@ -450,6 +463,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} "
                     f"(Primer pico detectado)"
                 )
+                if dias_stress > 0:
+                    st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
+                
                 if fecha_control:
                     st.error(
                         f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. "
@@ -605,14 +621,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({
-            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'],
-            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]
+            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'],
+            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Prediccion_Balcarce_vK4_9_6_BHS.xlsx"
+        "PREDWEEM_Operativo_Balcarce_vK4_9_8.xlsx"
     )
 
 else:
