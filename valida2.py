@@ -427,7 +427,7 @@ df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.40)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.50)
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
@@ -465,7 +465,7 @@ col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
     min_dist_picos = st.number_input("Separación Flushes (días)", min_value=1, max_value=45, value=7, step=1)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.50, step=0.05)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
@@ -654,8 +654,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     colorscale_hard = [
         [0.0, "green"],
-        [0.39, "green"],
-        [0.40, "red"],
+        [0.49, "green"],
+        [0.50, "red"],
         [1.0, "red"]
     ]
 
