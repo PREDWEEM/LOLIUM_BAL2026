@@ -10,6 +10,7 @@
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
+# - NUEVO: Bloqueo total de emergencia (0%) hasta alcanzar Capacidad de Campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke Máximo.
@@ -331,15 +332,19 @@ if df_meteo_raw is not None and modelo_ann is not None:
     
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # CORTE HÍDRICO ESTRICTO
+    # 1. CORTE HÍDRICO ESTRICTO DIARIO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # 2. TRIGGER DE RECARGA INICIAL (Capacidad de Campo)
+    df['Capacidad_Alcanzada'] = (df['W_superficial'] >= (w_max_val * 0.99)).cummax()
+    df.loc[~df['Capacidad_Alcanzada'], "EMERREL"] = 0.0
 
     # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
-
+    
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
