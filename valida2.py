@@ -7,7 +7,7 @@
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
-# - NUEVO: Bloqueo total de emergencia (0%) hasta alcanzar Capacidad de Campo.
+# - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
 # - Eliminación total de réplicas (Ecos) en cadena.
 # - Detección agronómica de flushes de campo.
@@ -581,9 +581,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # 1. CORTE HÍDRICO ESTRICTO DIARIO (Pisos de humedad)
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
 
-    # 2. TRIGGER DE RECARGA INICIAL (Capacidad de Campo)
-    df['Capacidad_Alcanzada'] = (df['W_superficial'] >= (w_max_val * 0.99)).cummax()
-    df.loc[~df['Capacidad_Alcanzada'], "EMERREL"] = 0.0
+    # 2. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
+    # La emergencia se bloquea al 0% hasta que un solo evento de lluvia alcance o supere w_max_val.
+    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
+    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
