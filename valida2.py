@@ -7,6 +7,7 @@
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
+# - NUEVO: Bloqueo total de emergencia (0%) hasta alcanzar Capacidad de Campo.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
 # - Eliminación total de réplicas (Ecos) en cadena.
 # - Detección agronómica de flushes de campo.
@@ -134,7 +135,6 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-# MODIFICACIÓN: Secado dinámico con factor Kr
 def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
@@ -483,7 +483,6 @@ col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
     min_dist_picos = st.number_input("Separación Flushes (días)", min_value=1, max_value=45, value=7, step=1)
 with col_p2:
-    # AJUSTADO: Umbral mínimo de pico por defecto a 0.30
     umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 st.sidebar.divider()
@@ -579,8 +578,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # CORTE HÍDRICO ESTRICTO
+    # 1. CORTE HÍDRICO ESTRICTO DIARIO (Pisos de humedad)
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # 2. TRIGGER DE RECARGA INICIAL (Capacidad de Campo)
+    df['Capacidad_Alcanzada'] = (df['W_superficial'] >= (w_max_val * 0.99)).cummax()
+    df.loc[~df['Capacidad_Alcanzada'], "EMERREL"] = 0.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
