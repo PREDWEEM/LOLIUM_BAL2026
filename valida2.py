@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM BALCARCE 2026
@@ -10,7 +11,7 @@
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
 # - Eliminación total de réplicas (Ecos) en cadena.
-# - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes integrada).
+# - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud -37.75).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para Ke Máximo.
@@ -292,7 +293,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
-                    # NUEVO: Evitar que el filtro elimine el pico secundario si hay un valor de campo justo en el medio
+                    # Evitar que el filtro elimine el pico secundario si hay un valor de campo justo en el medio
                     es_flanqueante = False
                     for obs_date in obs_peak_dates:
                         d_idx = sim_peak_dates[idx]
@@ -372,7 +373,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     matched_links.append((sim_idx, obs_idx))
                     offsets.append(diff)
                     
-    # NUEVO: 2. Integración de Picos Gemelos (Misma Cohorte TP)
+    # 2. Integración de Picos Gemelos (Misma Cohorte TP)
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             sim_date_i = sim_peak_dates[i]
@@ -400,11 +401,31 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                             matched_sim.add(i)
                             break
             
-    # Asignación de Falsos Positivos para los que realmente sobraron
+    # --- NUEVA LÓGICA: FILTRO DE INDULTO PARA FALSOS POSITIVOS ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
-                fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
+                es_error_real = True
+                sim_date_i = sim_peak_dates[i]
+                
+                # Regla de Indulto A: Está dentro de la ventana de un True Positive (observación de campo detectada)
+                for obs_idx in matched_obs:
+                    obs_date = obs_peak_dates[obs_idx]
+                    if -tol_retraso <= (obs_date - sim_date_i).days <= tol_anticipo:
+                        es_error_real = False
+                        break
+                
+                # Regla de Indulto B: Es contiguo (<= min_dist_picos) a un pico simulado que ya es True Positive
+                if es_error_real:
+                    for m_sim in matched_sim:
+                        sim_date_m = sim_peak_dates[m_sim]
+                        if abs((sim_date_i - sim_date_m).days) <= min_dist_picos:
+                            es_error_real = False
+                            break
+                
+                # Si sobró, no hay TP cerca y no está en la ventana de una observación, es un FP real (Error)
+                if es_error_real:
+                    fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
     # Asignación de Falsos Negativos y Verdaderos Negativos
     for j in range(len(obs_peak_dates)):
