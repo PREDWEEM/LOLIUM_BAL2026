@@ -13,7 +13,8 @@
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
-# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke Máximo.
+# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
+# - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # - Carga AUTOMÁTICA de datos climáticos desde 'meteo_daily.csv'.
 # - SIN MÓDULO DE VALIDACIÓN (Versión exclusiva para predicción operativa).
 # ===============================================================
@@ -163,15 +164,12 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        emer = []
-        for x in Xn:
-            z1 = self.IW.T @ x + self.bIW
-            a1 = np.tanh(z1)
-            z2 = self.LW @ a1 + self.bLW
-            emer.append(np.tanh(z2))
-        emer = (np.array(emer).flatten() + 1) / 2
-        emer_ac = np.cumsum(emer)
-        emerrel = np.diff(emer_ac, prepend=0)
+        # Vectorización matricial pura
+        z1 = Xn @ self.IW + self.bIW
+        a1 = np.tanh(z1)
+        z2 = (a1 @ self.LW.T).flatten() + self.bLW
+        emerrel = (np.tanh(z2) + 1) / 2
+        emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
 
 @st.cache_resource
@@ -279,16 +277,22 @@ tipo_manejo = st.sidebar.selectbox(
     index=1 
 )
 
+# Lógica de cobertura ampliada
 if "Muy Densa" in tipo_manejo:
-    ke_val = 0.15
+    ke_val = 0.10      
+    mod_termico = 0.80 
 elif "Alta" in tipo_manejo:
-    ke_val = 0.20
+    ke_val = 0.25      
+    mod_termico = 0.90 
 elif "Media" in tipo_manejo:
-    ke_val = 0.30
+    ke_val = 0.50      
+    mod_termico = 0.95 
 else:
-    ke_val = 0.40
+    ke_val = 0.95      
+    mod_termico = 1.00 
 
 st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
+st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
@@ -307,8 +311,15 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
-    # --- PREDICCIÓN NEURAL PURA ---
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    # --- SIMULACIÓN TÉRMICA DEL SUELO ---
+    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
+    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
+    
+    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
+    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
+
+    # --- PREDICCIÓN NEURAL PURA (Usando Temp Suelo) ---
+    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
@@ -336,12 +347,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
 
     # 2. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
-    # La emergencia se bloquea al 0% hasta que un solo evento de lluvia alcance o supere w_max_val.
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
-    df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T Aire)
+    df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
@@ -388,7 +398,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - BALCARCE 2026")
 
-    # AJUSTADO: Escala de colores personalizada (cambio en 0.30)
     colorscale_hard = [
         [0.0, "green"],
         [0.29, "green"],
@@ -633,8 +642,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({
-            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'],
-            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]
+            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'],
+            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button(
