@@ -1,4 +1,4 @@
-name: Actualizacion Diaria Clima Azul
+name: Actualizacion Diaria Clima Balcarce
 
 on:
   schedule:
@@ -26,7 +26,7 @@ jobs:
           pip install requests pandas
 
       - name: Ejecutar script de clima
-        run: python actualizar_clima.py
+        run: python actualizar_clima_balcarce.py
 
       - name: Subir cambios al repo
         run: |
@@ -35,12 +35,12 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
           # Agregamos el archivo histórico modificado
-          git add meteo_daily.csv
+          git add meteo_daily_balcarce_real.csv
           
           # Verificamos si hubo cambios reales para evitar errores (Exit code 128)
           if git diff --staged --quiet; then
             echo "No hay datos nuevos para actualizar hoy. Saltando commit."
           else
-            git commit -m "Actualización diaria: pronóstico de Azul agregado a meteo_daily.csv"
+            git commit -m "Actualización diaria: pronóstico de Balcarce agregado a meteo_daily_balcarce_real.csv"
             git push
           fi
