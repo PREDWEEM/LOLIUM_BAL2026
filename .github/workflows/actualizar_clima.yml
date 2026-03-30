@@ -31,5 +31,5 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add meteo_daily_balcarce_real.csv
+          git add meteo_daily.csv
           git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática de datos meteorológicos Balcarce" && git push)
