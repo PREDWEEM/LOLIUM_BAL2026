@@ -2,8 +2,8 @@ import pandas as pd
 import requests
 
 # Coordenadas de Balcarce, provincia de Buenos Aires
-lat = -37.8462
-lon = -58.2552
+lat = -37.7664
+lon = -58.2999
 
 # Rango de fechas de tu archivo original
 start_date = "2026-01-01"
