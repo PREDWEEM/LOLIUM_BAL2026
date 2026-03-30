@@ -26,7 +26,7 @@ jobs:
           pip install requests pandas
 
       - name: Ejecutar script de clima
-        run: python actualizar_clima_balcarce.py
+        run: python actualizar_clima.py
 
       - name: Subir cambios al repo
         run: |
