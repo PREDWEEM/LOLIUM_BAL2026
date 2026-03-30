@@ -4,8 +4,8 @@ import sys
 import os
 
 # Coordenadas de Balcarce, Provincia de Buenos Aires
-LAT = -37.8462
-LON = -58.2552
+LAT = -37.7664
+LON = -58.2999
 ARCHIVO_CSV = 'meteo_daily.csv'
 
 def actualizar_pronostico():
