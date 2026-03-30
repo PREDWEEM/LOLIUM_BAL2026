@@ -3,10 +3,10 @@ import pandas as pd
 import sys
 import os
 
-# Coordenadas de Azul, Provincia de Buenos Aires
-LAT = -36.7770
-LON = -59.8586
-ARCHIVO_CSV = 'meteo_daily.csv'
+# Coordenadas de Balcarce, Provincia de Buenos Aires
+LAT = -37.8462
+LON = -58.2552
+ARCHIVO_CSV = 'meteo_daily_balcarce_real.csv'
 
 def actualizar_pronostico():
     url = "https://api.open-meteo.com/v1/forecast"
@@ -18,7 +18,7 @@ def actualizar_pronostico():
         "forecast_days": 7
     }
     
-    print("Consultando a Open-Meteo para Azul...")
+    print("Consultando a Open-Meteo para Balcarce...")
     response = requests.get(url, params=params)
     
     if response.status_code != 200:
@@ -46,7 +46,7 @@ def actualizar_pronostico():
         
         # Opcional: Si quieres forzar una limpieza estricta de cualquier dato basura 
         # que haya quedado del 27/03 en adelante antes de pegar el nuevo pronóstico,
-        # descomenta la siguiente línea:
+        # descomenta la siguiente línea y ajusta la fecha si es necesario:
         # df_historico = df_historico[df_historico['Fecha'] < '2026-03-27']
 
         # Combinamos el historial con los datos nuevos
