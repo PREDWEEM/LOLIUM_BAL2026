@@ -12,7 +12,7 @@
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.75).
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.76).
 # - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # - Carga AUTOMÁTICA de datos climáticos desde 'meteo_daily.csv'.
@@ -333,7 +333,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL Y TÉRMICO (BHS BALCARCE)
     # ---------------------------------------------------------
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.75)
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.76)
     
     # Balance hídrico superficial actualizado con Ke dinámico
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
