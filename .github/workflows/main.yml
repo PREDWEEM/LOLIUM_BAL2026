@@ -1,12 +1,14 @@
-
 name: Actualizacion Diaria Clima Balcarce
 
 on:
   schedule:
-    - cron: '0 11 * * *' # Se ejecuta a las 11:00 UTC (08:00 AM en Argentina)
-  workflow_dispatch: # Permite ejecutar el script manualmente desde GitHub
+    # Horarios en UTC (Argentina es UTC-3):
+    # 11:00 UTC = 08:00 AM
+    # 17:00 UTC = 02:00 PM
+    # 23:00 UTC = 08:00 PM
+    - cron: '0 11,17,23 * * *'
+  workflow_dispatch: # Permite ejecución manual
 
-# Permisos necesarios para que el bot pueda guardar el archivo en tu repositorio
 permissions:
   contents: write
 
@@ -31,17 +33,14 @@ jobs:
 
       - name: Subir cambios al repo
         run: |
-          # Configuramos el bot oficial de GitHub Actions
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
-          # Agregamos el archivo histórico modificado
           git add meteo_daily.csv
           
-          # Verificamos si hubo cambios reales para evitar errores (Exit code 128)
           if git diff --staged --quiet; then
-            echo "No hay datos nuevos para actualizar hoy. Saltando commit."
+            echo "No hay cambios en el pronóstico de Balcarce. Saltando commit."
           else
-            git commit -m "Actualización diaria: pronóstico de Balcarce agregado a meteo_daily.csv"
+            git commit -m "Actualización programada: Clima Balcarce (ECMWF)"
             git push
           fi
