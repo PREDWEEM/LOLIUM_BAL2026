@@ -14,8 +14,7 @@ def actualizar_pronostico():
         "latitude": LAT,
         "longitude": LON,
         "daily": ["temperature_2m_max", "temperature_2m_min", "precipitation_sum"],
-        "timezone": "America/Argentina/Buenos_Aires",
-        "models": "ecmwf_ifs04",          # Modelo Europeo de alta resolución
+        "timezone": "America/Argentina/Buenos_Aires",        
         "forecast_days": 7
     }
     
