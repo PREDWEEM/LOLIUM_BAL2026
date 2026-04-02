@@ -3,7 +3,7 @@
 # 🌾 PREDWEEM OPERATIVO vK4.9.9 — MODO GENERAL (MEMORIA TÉRMICA)
 # Actualización:
 # - NUEVO: Módulo de Memoria Térmica. Autocalibración latitudinal 
-#   del umbral de termoinhibición basada en el estrés térmico de enero.
+#   del umbral de termoinhibición basada en el estrés térmico de enero y febrero.
 # - UNIFICACIÓN MECANÍSTICA 100% (Modo Predicción Pura).
 # - NUEVO: Escudo Termofisiológico Dinámico acoplado a la Memoria Térmica.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
@@ -26,7 +26,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM GENERAL vK4.9.9",
+    page_title="PREDWEEM BALCARCE vK4.9.9",
     layout="wide",
     page_icon="🌾"
 )
@@ -115,7 +115,7 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     else:
         return 0.0
 
-def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
+def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.76):
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -220,7 +220,7 @@ st.sidebar.markdown("**Ruptura de Dormición Estival**")
 umbral_termoinhibicion_manual = st.sidebar.number_input(
     "Umbral Termoinhibición Manual (°C)", 
     min_value=15.0, max_value=35.0, value=24.0, step=0.5,
-    help="Este valor solo se usará si el modelo no puede calcular la Memoria Térmica (falta de datos de enero)."
+    help="Este valor solo se usará si el modelo no puede calcular la Memoria Térmica (falta de datos de verano)."
 )
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
@@ -295,19 +295,19 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
 
-    # --- [NUEVO] MÓDULO DE MEMORIA TÉRMICA ---
-    # Autocalibración del umbral basado en el estrés térmico de Enero
-    df_enero = df[df['Fecha'].dt.month == 1]
+    # --- [NUEVO] MÓDULO DE MEMORIA TÉRMICA (Bimestre Enero-Febrero) ---
+    # Autocalibración del umbral basado en el estrés térmico de pleno verano
+    df_verano = df[df['Fecha'].dt.month.isin([1, 2])]
     
-    if not df_enero.empty:
-        t_media_verano = df_enero["Tmedia_aire"].mean()
+    if not df_verano.empty:
+        t_media_verano = df_verano["Tmedia_aire"].mean()
         # Ecuación: Baja el umbral si el verano superó los 22°C de media. Mínimo 18°C.
         umbral_dinamico = 24.0 - np.maximum(0.0, t_media_verano - 22.0)
         umbral_final = np.maximum(18.0, umbral_dinamico)
-        st.sidebar.success(f"🧠 **Memoria Térmica Activa**\n\nMedia Enero: {t_media_verano:.1f}°C\nUmbral Autocalibrado: **{umbral_final:.1f}°C**")
+        st.sidebar.success(f"🧠 **Memoria Térmica Activa (Verano)**\n\nMedia Ene-Feb: {t_media_verano:.1f}°C\nUmbral Autocalibrado: **{umbral_final:.1f}°C**")
     else:
         umbral_final = umbral_termoinhibicion_manual
-        st.sidebar.warning(f"⚠️ Sin datos de Enero para Memoria Térmica. Usando umbral manual: {umbral_final}°C")
+        st.sidebar.warning(f"⚠️ Sin datos de Enero/Febrero para Memoria Térmica. Usando umbral manual: {umbral_final}°C")
 
     # --- PREDICCIÓN NEURAL PURA ---
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
@@ -321,7 +321,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # --- MÓDULO HÍDRICO SUPERFICIAL ---
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values)
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.76)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
@@ -378,7 +378,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - MODELO GENERAL ADAPTATIVO")
+    st.title("🌾 PREDWEEM LOLIUM - BALCARCE (MODELO ADAPTATIVO)")
 
     colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
 
@@ -387,7 +387,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
     ))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo Diario")
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo Diario (Balcarce)")
     st.plotly_chart(fig_risk, use_container_width=True)
 
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -523,8 +523,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Operativo_General_vK4_9_9.xlsx"
+        "PREDWEEM_Operativo_Balcarce_vK4_9_9.xlsx"
     )
 
 else:
-    st.info("👋 Bienvenido a PREDWEEM GENERAL. El sistema está esperando los datos climáticos para comenzar y autocalibrarse.")
+    st.info("👋 Bienvenido a PREDWEEM BALCARCE. El sistema está esperando los datos climáticos para comenzar y autocalibrarse.")
