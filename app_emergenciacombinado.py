@@ -1,22 +1,16 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BALCARCE 2026
+# 🌾 PREDWEEM OPERATIVO vK4.9.9 — MODO GENERAL (MEMORIA TÉRMICA)
 # Actualización:
-# - UNIFICACIÓN MECANÍSTICA 100% (Modo Predicción Pura):
-#   * ELIMINADA la restricción hídrica sigmoide empírica (centro 40 mm).
-#   * ELIMINADA la relajación dinámica empírica (Día Juliano 25).
-#   * ELIMINADO el forzado de pico empírico por lluvias intensas.
-# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Módulo de Memoria Térmica. Autocalibración latitudinal 
+#   del umbral de termoinhibición basada en el estrés térmico de enero.
+# - UNIFICACIÓN MECANÍSTICA 100% (Modo Predicción Pura).
+# - NUEVO: Escudo Termofisiológico Dinámico acoplado a la Memoria Térmica.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Balcarce: -37.76).
-# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
-# - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
-# - Carga AUTOMÁTICA de datos climáticos desde 'meteo_daily.csv'.
-# - SIN MÓDULO DE VALIDACIÓN (Versión exclusiva para predicción operativa).
 # ===============================================================
 
 import streamlit as st
@@ -32,7 +26,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BALCARCE vK4.9.8",
+    page_title="PREDWEEM GENERAL vK4.9.9",
     layout="wide",
     page_icon="🌾"
 )
@@ -122,7 +116,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
-    # Latitud ajustada para Balcarce
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -138,7 +131,6 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.75):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-# MODIFICACIÓN: Secado dinámico con factor Kr
 def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
@@ -164,7 +156,6 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Vectorización matricial pura
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -189,16 +180,13 @@ def load_models():
         return None, None
 
 def load_data(file_uploader=None):
-    # 1. Si el usuario sube un archivo manualmente, tiene prioridad.
     if file_uploader:
         return pd.read_excel(file_uploader) if file_uploader.name.endswith((".xlsx", ".xls")) else pd.read_csv(file_uploader)
     
-    # 2. Carga automática local
     ruta_local = BASE / "meteo_daily.csv"
     if ruta_local.exists():
         return pd.read_csv(ruta_local)
         
-    # 3. Carga automática desde GitHub (Backup)
     github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/meteo_daily.csv"
     try:
         return pd.read_csv(github_url)
@@ -215,31 +203,31 @@ st.sidebar.image(
     use_container_width=True
 )
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"], help="Si no subes nada, el sistema leerá automáticamente meteo_daily.csv")
+archivo_meteo = st.sidebar.file_uploader("Subir Clima Manual (CSV/XLSX)", type=["xlsx", "csv"], help="El modelo se autocalibrará según estos datos.")
 df_meteo_raw = load_data(archivo_meteo)
 
 if df_meteo_raw is not None:
     st.sidebar.success("✅ Datos climáticos cargados.")
 else:
-    st.sidebar.error("❌ No se encontró 'meteo_daily.csv' ni se subió ningún archivo.")
+    st.sidebar.error("❌ No se encontró archivo de datos.")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
 
-st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
-umbral_termoinhibicion = st.sidebar.number_input(
-    "Umbral Termoinhibición (°C)", 
+st.sidebar.markdown("**Ruptura de Dormición Estival**")
+umbral_termoinhibicion_manual = st.sidebar.number_input(
+    "Umbral Termoinhibición Manual (°C)", 
     min_value=15.0, max_value=35.0, value=24.0, step=0.5,
-    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+    help="Este valor solo se usará si el modelo no puede calcular la Memoria Térmica (falta de datos de enero)."
 )
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
     min_value=20.0, max_value=100.0, value=45.0, 
-    help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
+    help="Desbloquea la emergencia temprana si se acumula esta lluvia."
 )
 
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
@@ -253,19 +241,13 @@ with col_t2:
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input(
-    "TT Control Post-emergente (°Cd)",
-    value=600,
-    step=10,
-    help="Grados-día a acumular desde el primer pico."
-)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=30.0, step=1.0)
 
-st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
     "Nivel de Rastrojo",
     options=[
@@ -277,7 +259,6 @@ tipo_manejo = st.sidebar.selectbox(
     index=1 
 )
 
-# Lógica de cobertura ampliada
 if "Muy Densa" in tipo_manejo:
     ke_val = 0.10      
     mod_termico = 0.80 
@@ -302,11 +283,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- PREPROCESAMIENTO CLIMA ---
     df = df_meteo_raw.copy()
     df.columns = [c.upper().strip() for c in df.columns]
-    
-    # Mapeo robusto de columnas
     mapeo = {'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'}
     df = df.rename(columns=mapeo)
-
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
@@ -314,46 +292,50 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- SIMULACIÓN TÉRMICA DEL SUELO ---
     df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
-    
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
 
-    # --- PREDICCIÓN NEURAL PURA (Usando Temp Suelo) ---
+    # --- [NUEVO] MÓDULO DE MEMORIA TÉRMICA ---
+    # Autocalibración del umbral basado en el estrés térmico de Enero
+    df_enero = df[df['Fecha'].dt.month == 1]
+    
+    if not df_enero.empty:
+        t_media_verano = df_enero["Tmedia_aire"].mean()
+        # Ecuación: Baja el umbral si el verano superó los 22°C de media. Mínimo 18°C.
+        umbral_dinamico = 24.0 - np.maximum(0.0, t_media_verano - 22.0)
+        umbral_final = np.maximum(18.0, umbral_dinamico)
+        st.sidebar.success(f"🧠 **Memoria Térmica Activa**\n\nMedia Enero: {t_media_verano:.1f}°C\nUmbral Autocalibrado: **{umbral_final:.1f}°C**")
+    else:
+        umbral_final = umbral_termoinhibicion_manual
+        st.sidebar.warning(f"⚠️ Sin datos de Enero para Memoria Térmica. Usando umbral manual: {umbral_final}°C")
+
+    # --- PREDICCIÓN NEURAL PURA ---
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
-    limite_juliano_temprano = 110 # Aprox. 20 de Abril
+    # --- BYPASS AGRONÓMICO ---
+    limite_juliano_temprano = 110 # 20 de Abril
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
-    # ---------------------------------------------------------
-    # MÓDULO HÍDRICO SUPERFICIAL Y TÉRMICO (BHS BALCARCE)
-    # ---------------------------------------------------------
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.76)
-    
-    # Balance hídrico superficial actualizado con Ke dinámico
+    # --- MÓDULO HÍDRICO SUPERFICIAL ---
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
-    
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
-    
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # 1. CORTE HÍDRICO ESTRICTO DIARIO
+    # CORTE HÍDRICO ESTRICTO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
-
-    # 2. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T Aire)
+    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Usando Memoria Térmica)
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
-    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_final
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
     
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
@@ -390,42 +372,26 @@ if df_meteo_raw is not None and modelo_ann is not None:
         else:
             dga_7dias = dga_hoy
 
-        msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+        msg_estado = f"Pico el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - BALCARCE 2026")
+    st.title("🌾 PREDWEEM LOLIUM - MODELO GENERAL ADAPTATIVO")
 
-    colorscale_hard = [
-        [0.0, "green"],
-        [0.29, "green"],
-        [0.30, "red"],
-        [1.0, "red"]
-    ]
+    colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
 
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values],
-        x=df["Fecha"],
-        y=["Emergencia"],
-        colorscale=colorscale_hard,
-        zmin=0,
-        zmax=1,
-        showscale=False
+        x=df["Fecha"], y=["Emergencia"],
+        colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
     ))
-    fig_risk.update_layout(
-        height=120,
-        margin=dict(t=30, b=0, l=10, r=10),
-        title="Mapa de Riesgo Diario (Balcarce)"
-    )
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo Diario")
     st.plotly_chart(fig_risk, use_container_width=True)
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 MONITOR DE DECISIÓN",
-        "💧 PRECIPITACIONES Y SUELO",
-        "📈 ANÁLISIS ESTRATÉGICO",
-        "🧪 BIO-CALIBRACIÓN"
+        "📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"
     ])
 
     with tab1:
@@ -434,69 +400,37 @@ if df_meteo_raw is not None and modelo_ann is not None:
         with col_main:
             fig_emer = go.Figure()
             fig_emer.add_trace(go.Scatter(
-                x=df["Fecha"],
-                y=df["EMERREL"],
-                mode='lines',
-                name='Tasa Diaria Simulada',
-                line=dict(color='#166534', width=2.5),
-                fill='tozeroy',
-                fillcolor='rgba(22, 101, 52, 0.1)'
+                x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria Simulada',
+                line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
-            fig_emer.add_hline(
-                y=umbral_er,
-                line_dash="dash",
-                line_color="orange",
-                annotation_text=f"Umbral Alerta ({umbral_er})"
-            )
+            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
             if fecha_control:
                 fig_emer.add_vline(
-                    x=fecha_control.timestamp() * 1000,
-                    line_dash="dot",
-                    line_color="red",
-                    line_width=3,
-                    annotation_text=f"Control ({dga_optimo}°Cd)",
-                    annotation_position="top left",
-                    annotation_font=dict(color="red", size=12)
+                    x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3,
+                    annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12)
                 )
                 fin_res = fecha_control + timedelta(days=residualidad)
                 fig_emer.add_vrect(
-                    x0=fecha_control.timestamp() * 1000,
-                    x1=fin_res.timestamp() * 1000,
-                    fillcolor="blue",
-                    opacity=0.1,
-                    layer="below",
-                    line_width=0,
-                    annotation_text=f"Protección ({residualidad}d)",
-                    annotation_position="top left"
+                    x0=fecha_control.timestamp() * 1000, x1=fin_res.timestamp() * 1000, fillcolor="blue", opacity=0.1,
+                    layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left"
                 )
 
             fig_emer.update_layout(
-                title="Dinámica de Emergencia y Momento Crítico",
-                height=450,
-                hovermode="x unified",
+                title="Dinámica de Emergencia y Momento Crítico", height=450, hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
-                st.success(
-                    f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} "
-                    f"(Primer pico detectado)"
-                )
+                st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico)")
                 if dias_stress > 0:
                     st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
                 
                 if fecha_control:
-                    st.error(
-                        f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. "
-                        f"Se acumularon **{dga_optimo} °Cd** post-emergencia."
-                    )
+                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
                 else:
-                    st.info(
-                        f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd "
-                        f"requeridos para el control."
-                    )
+                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control.")
             else:
                 st.warning(f"⏳ Esperando primera alerta (Tasa diaria >= {umbral_er}).")
 
@@ -504,9 +438,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             max_axis = dga_critico * 1.2
             fig_gauge = go.Figure()
             fig_gauge.add_trace(go.Indicator(
-                mode="gauge+number",
-                value=dga_hoy,
-                domain={'x': [0, 1], 'y': [0, 1]},
+                mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]},
                 title={'text': "<b>TT ACUMULADO (°Cd)</b>", 'font': {'size': 18}},
                 gauge={
                     'axis': {'range': [None, max_axis]},
@@ -516,68 +448,24 @@ if df_meteo_raw is not None and modelo_ann is not None:
                         {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
                         {'range': [dga_critico, max_axis], 'color': "#f87171"}
                     ],
-                    'threshold': {
-                        'line': {'color': "#2563eb", 'width': 6},
-                        'thickness': 0.8,
-                        'value': dga_7dias
-                    }
+                    'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}
                 }
             ))
-            fig_gauge.add_annotation(
-                x=0.5,
-                y=-0.1,
-                text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>",
-                showarrow=False,
-                font=dict(size=14, color="#1e3a8a"),
-                align="center"
-            )
+            fig_gauge.add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center")
             fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
 
     with tab2:
         st.header("💧 Dinámica Hídrica del Suelo (Balance Superficial)")
-        st.markdown("Visualización de las precipitaciones frente a la retención de agua en los primeros centímetros del suelo, considerando la evapotranspiración (ET0).")
-        
         fig_hidrico = go.Figure()
-        
-        fig_hidrico.add_trace(go.Bar(
-            x=df["Fecha"],
-            y=df["Prec"],
-            name='Lluvia Diaria (mm)',
-            marker_color='#93c5fd',
-            opacity=0.7
-        ))
-        
-        fig_hidrico.add_trace(go.Scatter(
-            x=df["Fecha"],
-            y=df["W_superficial"],
-            name='Agua en Suelo (0-10cm)',
-            mode='lines',
-            line=dict(color='#0284c7', width=3),
-            fill='tozeroy',
-            fillcolor='rgba(2, 132, 199, 0.2)'
-        ))
-
-        fig_hidrico.add_hline(
-            y=w_max_val,
-            line_dash="dot",
-            line_color="#334155",
-            annotation_text=f"Capacidad Máx. ({w_max_val} mm)",
-            annotation_position="top left"
-        )
-
-        fig_hidrico.update_layout(
-            title="Precipitación vs. Retención Real de Humedad",
-            xaxis_title="Fecha",
-            yaxis_title="Milímetros (mm)",
-            height=450,
-            hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_hidrico.add_trace(go.Bar(x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)', marker_color='#93c5fd', opacity=0.7))
+        fig_hidrico.add_trace(go.Scatter(x=df["Fecha"], y=df["W_superficial"], name='Agua en Suelo (0-10cm)', mode='lines', line=dict(color='#0284c7', width=3), fill='tozeroy', fillcolor='rgba(2, 132, 199, 0.2)'))
+        fig_hidrico.add_hline(y=w_max_val, line_dash="dot", line_color="#334155", annotation_text=f"Capacidad Máx. ({w_max_val} mm)", annotation_position="top left")
+        fig_hidrico.update_layout(title="Precipitación vs. Retención Real de Humedad", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_hidrico, use_container_width=True)
 
     with tab3:
-        st.header("🔍 Clasificación DTW (Balcarce)")
+        st.header("🔍 Clasificación DTW del Patrón")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
 
@@ -600,18 +488,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
             c1, c2 = st.columns([3, 1])
             with c1:
                 fp = go.Figure()
-                fp.add_trace(go.Scatter(
-                    x=JD_COM,
-                    y=cluster_model["curves_interp"][pred],
-                    name="Patrón Histórico",
-                    line=dict(dash='dash', color=cols.get(pred))
-                ))
-                fp.add_trace(go.Scatter(
-                    x=jd_grid,
-                    y=obs_norm * cluster_model["curves_interp"][pred].max(),
-                    name="2026",
-                    line=dict(color='black', width=3)
-                ))
+                fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón Histórico", line=dict(dash='dash', color=cols.get(pred))))
+                fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="Temporada Actual", line=dict(color='black', width=3)))
                 st.plotly_chart(fp, use_container_width=True)
 
             with c2:
@@ -619,20 +497,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 st.success(f"### {nombres_patrones.get(pred, 'Desconocido')}")
                 st.metric("DTW Score", f"{min(dists):.2f}")
         else:
-            st.info("Datos insuficientes para clasificación DTW.")
+            st.info("Datos insuficientes o sin emergencia activa para clasificación DTW.")
 
     with tab4:
-        st.subheader("🧪 Curva de Respuesta Fisiológica")
+        st.subheader("🧪 Curva de Respuesta Fisiológica y Umbrales")
         x_temps = np.linspace(0, 45, 200)
         y_tt = [calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps]
         fig_bio = go.Figure()
-        fig_bio.add_trace(go.Scatter(
-            x=x_temps,
-            y=y_tt,
-            mode='lines',
-            line=dict(color='#2563eb', width=4),
-            fill='tozeroy'
-        ))
+        fig_bio.add_trace(go.Scatter(x=x_temps, y=y_tt, mode='lines', name="Acumulación TT", line=dict(color='#2563eb', width=4), fill='tozeroy'))
+        fig_bio.add_vline(x=umbral_final, line_dash="dash", line_color="red", annotation_text=f"Bloqueo Térmico ({umbral_final:.1f}°C)")
+        fig_bio.update_layout(title="Respuesta al Tiempo Térmico vs Inhibición Activa")
         st.plotly_chart(fig_bio, use_container_width=True)
 
     # -----------------------------------------------------
@@ -642,15 +516,15 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({
-            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'],
-            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]
+            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Dinamico_Aplicado'],
+            'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_final]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Operativo_Balcarce_vK4_9_8.xlsx"
+        "PREDWEEM_Operativo_General_vK4_9_9.xlsx"
     )
 
 else:
-    st.info("👋 Bienvenido a PREDWEEM. El sistema está esperando los datos climáticos para comenzar.")
+    st.info("👋 Bienvenido a PREDWEEM GENERAL. El sistema está esperando los datos climáticos para comenzar y autocalibrarse.")
