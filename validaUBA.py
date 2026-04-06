@@ -4,6 +4,7 @@
 # Actualización:
 # - ADAPTACIÓN AUTOMÁTICA DE DATOS: Lee nativamente los archivos crudos de 
 #   Lucas Royo (promedia repeticiones, limpia cabeceras dobles y mapea clima).
+# - PARCHE DE SEGURIDAD: Rescate de columna "Prec" ante celdas combinadas de Excel.
 # - UNIFICACIÓN MECANÍSTICA 100%
 # - Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
@@ -555,13 +556,13 @@ st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
-    # --- PREPROCESAMIENTO CLIMA (Adaptado para Lucas Royo) ---
+    # --- PREPROCESAMIENTO CLIMA (Adaptado para Lucas Royo y Celdas Combinadas) ---
     df = df_meteo_raw.copy()
     
     # 1. Convertir todas las columnas a texto, mayúsculas y sin espacios
     df.columns = [str(c).upper().strip() for c in df.columns]
     
-    # 2. Mapeo universal (cubre los nombres de tu archivo y nombres estándar)
+    # 2. Mapeo universal
     mapeo_clima = {
         'FECHA / HORA': 'Fecha',
         'FECHA': 'Fecha',
@@ -576,15 +577,32 @@ if df_meteo_raw is not None and modelo_ann is not None:
     }
     df = df.rename(columns=mapeo_clima)
 
-    # 3. Forzar a números (por si algún Excel lo sube como texto)
+    # 3. Rescate de columna de lluvia si Excel fusionó celdas (aparece como 'NAN' o 'UNNAMED')
+    if 'Prec' not in df.columns:
+        for c in df.columns:
+            if c not in ['Fecha', 'TMAX', 'TMIN', 'PROMEDIO'] and ('NAN' in c or 'UNNAMED' in c):
+                df = df.rename(columns={c: 'Prec'})
+                break
+
+    # 4. Forzar conversión a números
     for col in ["TMAX", "TMIN", "Prec"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     
-    # Eliminar filas vacías y ordenar
+    # 5. Validación de seguridad para no romper la app
+    if 'Prec' not in df.columns:
+        st.error("❌ ERROR: No se pudo detectar la columna de lluvias. Por favor, renómbrela a 'Prec' en su Excel.")
+        st.stop()
+        
+    # Eliminar filas vacías y ordenar cronológicamente
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
+    
+    if df.empty:
+        st.error("❌ ERROR: El archivo climático quedó vacío tras la limpieza. Revise el formato de fechas y números.")
+        st.stop()
+        
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
     # --- SIMULACIÓN TÉRMICA DEL SUELO ---
