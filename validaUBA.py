@@ -558,23 +558,32 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- PREPROCESAMIENTO CLIMA (Adaptado para Lucas Royo) ---
     df = df_meteo_raw.copy()
     
-    # Si detecta el formato crudo de Lucas Royo para Meteo
-    if 'Fecha / Hora' in df.columns:
-        df = df.rename(columns={'Fecha / Hora': 'Fecha', 'máx': 'TMAX', 'mín': 'TMIN', 'sum': 'Prec'})
-    elif 'máx' in df.columns and 'mín' in df.columns:
-        df = df.rename(columns={'máx': 'TMAX', 'mín': 'TMIN', 'sum': 'Prec'})
-        
-    df.columns = [c.upper().strip() for c in df.columns]
-    df = df.rename(columns={
+    # 1. Convertir todas las columnas a texto, mayúsculas y sin espacios
+    df.columns = [str(c).upper().strip() for c in df.columns]
+    
+    # 2. Mapeo universal (cubre los nombres de tu archivo y nombres estándar)
+    mapeo_clima = {
+        'FECHA / HORA': 'Fecha',
         'FECHA': 'Fecha',
         'DATE': 'Fecha',
-        'TMAX': 'TMAX',
-        'TMIN': 'TMIN',
+        'MÁX': 'TMAX',
+        'MAX': 'TMAX',
+        'MÍN': 'TMIN',
+        'MIN': 'TMIN',
+        'SUM': 'Prec',
         'PREC': 'Prec',
         'LLUVIA': 'Prec'
-    })
+    }
+    df = df.rename(columns=mapeo_clima)
+
+    # 3. Forzar a números (por si algún Excel lo sube como texto)
+    for col in ["TMAX", "TMIN", "Prec"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    
+    # Eliminar filas vacías y ordenar
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
@@ -593,10 +602,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
     if df_campo_raw is not None:
         df_campo = df_campo_raw.copy()
         
-        # Detectar columnas de repeticiones (ej: Rep 1, Rep 2...)
-        cols_reps = [c for c in df_campo.columns if isinstance(c, str) and 'Rep' in c]
+        # Detectar columnas de repeticiones de forma segura ignorando mayúsculas/minúsculas
+        cols_reps = [c for c in df_campo.columns if str(c).upper().strip().startswith('REP')]
         
-        if cols_reps:
+        if len(cols_reps) > 0:
             col_fecha = df_campo.columns[0]
             for col in cols_reps:
                 # Reemplazar guiones y convertir a número
@@ -605,8 +614,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
             df_campo['PLM2'] = df_campo[cols_reps].mean(axis=1)
             col_plm2 = 'PLM2'
         else:
-            col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
-            col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
+            col_fecha = df_campo.columns[0]
+            col_plm2 = df_campo.columns[1]
 
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha], errors='coerce')
         df_campo = df_campo.dropna(subset=[col_fecha]).sort_values(col_fecha).reset_index(drop=True)
