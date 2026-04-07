@@ -3,12 +3,14 @@
 # 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM BALCARCE 2026
 # Actualización:
 # - UNIFICACIÓN MECANÍSTICA 100%
+#   * Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS DE CAMPO.
+#   * Agregado de métricas robustas: RMSE de trayectoria y CCC (Concordancia).
+#   * Eliminación del sistema de 'Shifts' empíricos.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - BYPASS: Ruptura de dormición temprana por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
-# - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad.
 # - Eliminación total de réplicas (Ecos) en cadena.
 # - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
@@ -97,7 +99,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA (ANN + BIO + SEÑALES + BHS)
+# 3. LÓGICA TÉCNICA (ANN + BIO + SEÑALES + BHS + INTEGRAL)
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -194,45 +196,53 @@ def load_data(file_uploader, default_name):
         return pd.read_excel(BASE / f"{default_name}.xlsx")
     return None
 
-def build_shifted_interval_series(df_sim, df_campo, col_fecha, shift_days):
-    sim_intervals = []
-    last_date = df_sim["Fecha"].min() - pd.Timedelta(days=1)
+# --- NUEVAS FUNCIONES DE INTEGRACIÓN DE INTERVALOS ---
+def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
+    df_sync = df_campo.copy()
+    
+    total_campo = df_sync[col_plm2].sum()
+    df_sync['Campo_Relativo'] = df_sync[col_plm2] / total_campo if total_campo > 0 else 0
+    
+    sim_acumulada_intervalos = []
+    fecha_anterior = df_sim["Fecha"].min() - pd.Timedelta(days=1)
+    
+    for _, row in df_sync.iterrows():
+        fecha_actual = row[col_fecha]
+        mask_ventana = (df_sim["Fecha"] > fecha_anterior) & (df_sim["Fecha"] <= fecha_actual)
+        flujo_simulado_ventana = df_sim.loc[mask_ventana, "EMERREL"].sum()
+        
+        sim_acumulada_intervalos.append(flujo_simulado_ventana)
+        fecha_anterior = fecha_actual
+        
+    df_sync['Simulado_Intervalo'] = sim_acumulada_intervalos
+    total_sim = df_sync['Simulado_Intervalo'].sum()
+    df_sync['Sim_Relativo'] = df_sync['Simulado_Intervalo'] / total_sim if total_sim > 0 else 0.0
+        
+    df_sync['Campo_Acumulado'] = df_sync['Campo_Relativo'].cumsum()
+    df_sync['Sim_Acumulado'] = df_sync['Sim_Relativo'].cumsum()
+    
+    return df_sync
 
-    for _, row in df_campo.iterrows():
-        current_date = row[col_fecha]
-        start_shifted = last_date + pd.Timedelta(days=shift_days)
-        end_shifted = current_date + pd.Timedelta(days=shift_days)
-
-        mask_intervalo = (df_sim["Fecha"] > start_shifted) & (df_sim["Fecha"] <= end_shifted)
-        suma_simulada = df_sim.loc[mask_intervalo, "EMERREL"].sum()
-        sim_intervals.append(suma_simulada)
-        last_date = current_date
-
-    return np.array(sim_intervals, dtype=float)
-
-def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift_days=10):
-    obs = df_campo[col_plm2].to_numpy(dtype=float)
-    best = {"shift_days": 0, "pearson_r": -np.inf, "sim_intervalo": np.zeros(len(df_campo))}
-
-    for shift in range(-max_shift_days, max_shift_days + 1):
-        sim_vals = build_shifted_interval_series(df_sim, df_campo, col_fecha, shift)
-        pearson_r = pd.Series(obs).corr(pd.Series(sim_vals))
-        if pd.isna(pearson_r):
-            pearson_r = -1.0
-
-        is_better = False
-        if pearson_r > best["pearson_r"]:
-            is_better = True
-        elif np.isclose(pearson_r, best["pearson_r"], atol=1e-9) and abs(shift) < abs(best["shift_days"]):
-            is_better = True
-
-        if is_better:
-            best = {"shift_days": shift, "pearson_r": float(pearson_r), "sim_intervalo": sim_vals.copy()}
-
-    if best["pearson_r"] == -np.inf:
-        best["pearson_r"] = 0.0
-
-    return best
+def calcular_metricas_validacion_integral(df_sync):
+    obs = df_sync['Campo_Relativo'].values
+    sim = df_sync['Sim_Relativo'].values
+    obs_acum = df_sync['Campo_Acumulado'].values
+    sim_acum = df_sync['Sim_Acumulado'].values
+    
+    pearson_r = np.corrcoef(obs, sim)[0, 1] if np.std(obs) > 0 and np.std(sim) > 0 else 0.0
+    rmse_acumulado = np.sqrt(np.mean((obs_acum - sim_acum)**2))
+    
+    mean_obs, mean_sim = np.mean(obs_acum), np.mean(sim_acum)
+    var_obs, var_sim = np.var(obs_acum), np.var(sim_acum)
+    covar = np.mean((obs_acum - mean_obs) * (sim_acum - mean_sim))
+    
+    ccc_acumulado = (2 * covar) / (var_obs + var_sim + (mean_obs - mean_sim)**2) if (var_obs + var_sim) > 0 else 0.0
+    
+    return {
+        "Pearson_Flujos": pearson_r,
+        "RMSE_Acumulado": rmse_acumulado,
+        "CCC_Acumulado": ccc_acumulado
+    }
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=7, min_dist_picos=7, umbral_min_pico=0.3):
     sim_dates = df_sim['Fecha'].values
@@ -290,7 +300,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
-                    # Evitar que el filtro elimine el pico secundario si hay un valor de campo justo en el medio
                     es_flanqueante = False
                     for obs_date in obs_peak_dates:
                         d_idx = sim_peak_dates[idx]
@@ -525,12 +534,6 @@ dga_optimo = st.sidebar.number_input(
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.markdown("## 🧪 3. Validación")
-max_desfase_validacion = st.sidebar.slider(
-    "Desfase máximo admisible Pearson (días)",
-    min_value=0, max_value=15, value=10,
-    help="Desfase general de la curva para el cálculo de Pearson."
-)
-
 st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
 col_v1, col_v2 = st.sidebar.columns(2)
 with col_v1:
@@ -702,25 +705,29 @@ if df_meteo_raw is not None and modelo_ann is not None:
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
-    # --- MÉTRICAS DE VALIDACIÓN ---
-    pearson_r = 0.0
-    best_shift_days = 0
+    # --- MÉTRICAS DE VALIDACIÓN ROBUSTAS ---
+    pearson_r, rmse_acum, ccc_acum = 0.0, 0.0, 0.0
     pec, peak_lag, lead_time = 0.0, 0, 0
     desfase_t50 = 0
     cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "tn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
-        best_val = evaluate_shifted_validation(
-            df_sim=df,
-            df_campo=df_campo,
-            col_fecha=col_fecha,
-            col_plm2=col_plm2,
-            max_shift_days=max_desfase_validacion
+        
+        # 1. Procesar la sincronización exacta por intervalos de lectura
+        df_sincronizado = sincronizar_series_por_intervalos(
+            df_sim=df, 
+            df_campo=df_campo, 
+            col_fecha=col_fecha, 
+            col_plm2=col_plm2
         )
-
-        best_shift_days = best_val["shift_days"]
-        pearson_r = best_val["pearson_r"]
-        df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
+        
+        # 2. Calcular las métricas biológicamente ajustadas
+        metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
+        pearson_r = metricas_robustas["Pearson_Flujos"]
+        rmse_acum = metricas_robustas["RMSE_Acumulado"]
+        ccc_acum = metricas_robustas["CCC_Acumulado"]
+        
+        df_campo["Sim_Intervalo"] = df_sincronizado["Sim_Relativo"] # Solo para excel export
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
 
@@ -804,13 +811,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     with tab1:
         if df_campo is not None:
-            st.markdown("<p class='metric-header'>🚜 SINCRONÍA POBLACIONAL (TENDENCIA GLOBAL)</p>", unsafe_allow_html=True)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Pearson (r)", f"{pearson_r:.3f}", "Correlación de curva")
-            c2.metric("Shift Óptimo", f"{best_shift_days:+d} d", "Corrimiento Max Pearson")
+            st.markdown("<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (INTEGRAL)</p>", unsafe_allow_html=True)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Correlación (Pearson)", f"{pearson_r:.3f}", "Sincronía de Flujos")
+            c2.metric("Concordancia (CCC)", f"{ccc_acum:.3f}", "Fidelidad de Trayectoria")
+            c3.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Magnitud de desvío", delta_color="inverse")
             
             t50_label = "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado"
-            c3.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", t50_label, delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+            c4.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", t50_label, delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
 
             st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 SINCRONÍA DE COHORTES (PULSOS)</p>", unsafe_allow_html=True)
             k1, k2, k3, k4 = st.columns(4)
@@ -1079,13 +1087,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
             resumen_val = {
                 'Métrica': [
                     'PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 
-                    'Pearson (r)', 'Shift Óptimo Max Pearson (días)', 'Desfase T50 Global (días)',
+                    'Pearson (Flujos)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)',
                     'F1-Score Cohortes', 'Picos Coincidentes (TP)', 'Reposos Coincidentes (TN)',
                     'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'
                 ],
                 'Valor': [
                     pec, peak_lag, lead_time, 
-                    pearson_r, best_shift_days, desfase_t50,
+                    pearson_r, rmse_acum, ccc_acum, desfase_t50,
                     cohort_metrics['f1_score'], cohort_metrics['tp'], cohort_metrics['tn'],
                     cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']
                 ]
