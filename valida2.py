@@ -9,7 +9,6 @@
 # - NUEVO GRÁFICO: "Llenado de la Caja" (Curvas Acumuladas) + Dispersión 1:1.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
-# - BYPASS: Ruptura de dormición temprana por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Eliminación total de réplicas (Ecos) en cadena.
@@ -508,13 +507,6 @@ umbral_termoinhibicion = st.sidebar.number_input(
     help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
 )
 
-st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
-umbral_choque_hidrico = st.sidebar.slider(
-    "Choque Hídrico 3 días (mm)", 
-    min_value=20.0, max_value=100.0, value=45.0, 
-    help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
-)
-
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
@@ -628,17 +620,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
-
-    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
-    limite_juliano_temprano = 110 # Aprox. 20 de Abril
-    
-    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    
-    # Máscara: Fecha temprana + Lluvia excepcional (según slider)
-    mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    
-    # Asignamos un pulso base (ej. 0.65) SOLO si la red tiró un valor menor.
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL (BHS BALCARCE)
