@@ -505,14 +505,14 @@ umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.20)
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input(
     "Umbral Termoinhibición (°C)", 
-    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    min_value=15.0, max_value=35.0, value=20.0, step=0.5,
     help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
 )
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
-    min_value=20.0, max_value=100.0, value=45.0, 
+    min_value=10.0, max_value=100.0, value=10.0, 
     help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
 )
 
