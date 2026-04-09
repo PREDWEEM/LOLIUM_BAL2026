@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM BALCARCE 2026
@@ -638,8 +637,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Máscara: Fecha temprana + Lluvia excepcional (según slider)
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
     
-    # Asignamos un pulso base (ej. 0.65) SOLO si la red tiró un valor menor.
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
+    # Asignamos un pulso MÁXIMO (1.0) SOLO si la red tiró un valor menor.
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL (BHS BALCARCE)
