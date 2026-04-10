@@ -17,6 +17,8 @@
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
+# - NUEVO: Modulador de Agotamiento de Banco de Semillas (64%, 17.7%, 13.7%, 3.8%, 0.8%).
+# - MEJORA: Techo estricto (Clip 0-1) para estabilizar tasas diarias y eje Y fijo.
 # ===============================================================
 import streamlit as st
 import time
@@ -40,7 +42,6 @@ import pickle
 import io
 import base64
 from pathlib import Path
-
 
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
@@ -85,35 +86,33 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-import base64
-
 # --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
     """
     Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
     Funciona bien para fondos de pantalla completa con bajo contraste.
     """
-    with open(main_bg_file, "rb") as image_file:
-        encoded_string = base64.b64encode(image_file.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url(data:image/png;base64,{encoded_string});
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        with open(main_bg_file, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url(data:image/png;base64,{encoded_string});
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        pass # Si no encuentra la imagen, simplemente no carga el fondo
 
-# --- LLAMA A LA FUNCIÓN (Usa la Opción 1 o 2) ---
-# st.set_page_config(...) # Tu configuración actual
-# Tu bloque <style> actual...
-set_bg_hack("fondo_predweem_v3.png") # Reemplaza con tu archivo
+set_bg_hack("fondo_predweem_v3.png")
 
 # ---------------------------------------------------------
 # 2. ROBUSTEZ: GENERADOR DE ARCHIVOS MOCK
@@ -258,6 +257,40 @@ def get_data(file_input):
         st.error(f"Error leyendo datos: {e}")
         return None
 
+def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.640, 0.177, 0.137, 0.038, 0.008]):
+    """
+    Identifica flujos de emergencia y escala su volumen para que respeten
+    el patrón de agotamiento demográfico del banco de semillas.
+    """
+    df_mod = df.copy()
+    emer = df_mod[col_emer].values
+    
+    is_emerging = emer > 0.01
+
+    cambios = np.diff(is_emerging.astype(int))
+    inicios = np.where(cambios == 1)[0] + 1
+    fines = np.where(cambios == -1)[0] + 1
+
+    if is_emerging[0]: inicios = np.insert(inicios, 0, 0)
+    if is_emerging[-1]: fines = np.append(fines, len(emer))
+
+    suma_total_original = np.sum(emer)
+    
+    if suma_total_original == 0 or len(inicios) == 0:
+        return df_mod
+
+    nuevo_emer = np.zeros_like(emer)
+
+    for idx, (ini, fin) in enumerate(zip(inicios, fines)):
+        peso_objetivo = patron[idx] if idx < len(patron) else 0.0
+        suma_bloque = np.sum(emer[ini:fin])
+        if suma_bloque > 0:
+            factor = (suma_total_original * peso_objetivo) / suma_bloque
+            nuevo_emer[ini:fin] = emer[ini:fin] * factor
+
+    df_mod[col_emer] = nuevo_emer
+    return df_mod
+
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
@@ -300,7 +333,6 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             mod_termico = 1.00 
             
         st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
-
 
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/logo.png"
@@ -361,7 +393,6 @@ if df is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    
     # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
     limite_juliano_temprano = 110 # Aprox. 20 de Abril
     
@@ -373,7 +404,6 @@ if df is not None and modelo_ann is not None:
     # Asignamos un pulso MÁXIMO (1.0) SOLO si la red tiró un valor menor.
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
     
-
     # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
     # 1. Calculamos la Evapotranspiración (ET0) - Latitud mantenida en -38.45
     # Nota: Se usan las T del aire, ya que ET0 es una demanda atmosférica
@@ -402,6 +432,13 @@ if df is not None and modelo_ann is not None:
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
     
+    # =======================================================
+    # NUEVO: APLICAR PATRÓN DE AGOTAMIENTO Y TECHO 0-1
+    # =======================================================
+    df = aplicar_patron_agotamiento(df)
+    df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
+    # =======================================================
+
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
@@ -466,7 +503,9 @@ if df is not None and modelo_ann is not None:
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
-            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350, hovermode="x unified")
+            
+            # Eje Y anclado en 0 y 1.05
+            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350, hovermode="x unified", yaxis=dict(range=[0, 1.05]))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
