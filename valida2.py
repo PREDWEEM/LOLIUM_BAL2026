@@ -19,6 +19,7 @@
 # - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # - NUEVO: Modulador de Agotamiento de Banco de Semillas (64%, 17.7%, 13.7%, 3.8%, 0.8%).
+# - MEJORA: Techo estricto (Clip 0-1) para estabilizar tasas diarias y eje Y fijo.
 # ===============================================================
 
 import streamlit as st
@@ -718,6 +719,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # (64%, 17.7%, 13.7%, 3.8%, 0.8%)
     # =======================================================
     df = aplicar_patron_agotamiento(df)
+    
+    # CORRECCIÓN: Forzar que ningún valor de tasa diaria rompa el techo del 100% (1.0)
+    df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
     # =======================================================
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
@@ -961,10 +965,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     annotation_position="top left"
                 )
 
+            # CORRECCIÓN: Eje Y anclado estrictamente a 0 - 1.05
             fig_emer.update_layout(
                 title="Dinámica de Emergencia y Momento Crítico",
                 height=450,
                 hovermode="x unified",
+                yaxis=dict(range=[0, 1.05]),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_emer, use_container_width=True)
