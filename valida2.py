@@ -18,6 +18,7 @@
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud -37.75).
 # - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
+# - NUEVO: Modulador de Agotamiento de Banco de Semillas (64%, 17.7%, 13.7%, 3.8%, 0.8%).
 # ===============================================================
 
 import streamlit as st
@@ -196,6 +197,48 @@ def load_data(file_uploader, default_name):
     elif (BASE / f"{default_name}.xlsx").exists():
         return pd.read_excel(BASE / f"{default_name}.xlsx")
     return None
+
+def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.640, 0.177, 0.137, 0.038, 0.008]):
+    """
+    Identifica flujos de emergencia y escala su volumen para que respeten
+    el patrón de agotamiento demográfico del banco de semillas.
+    """
+    df_mod = df.copy()
+    emer = df_mod[col_emer].values
+    
+    # 1. Identificar en qué días hay nacimientos (umbral bajo para separar flujos)
+    is_emerging = emer > 0.01
+
+    # 2. Encontrar dónde empieza y termina cada flujo (cohorte) continuo
+    cambios = np.diff(is_emerging.astype(int))
+    inicios = np.where(cambios == 1)[0] + 1
+    fines = np.where(cambios == -1)[0] + 1
+
+    # Manejo de bordes (si empieza o termina emergiendo)
+    if is_emerging[0]: inicios = np.insert(inicios, 0, 0)
+    if is_emerging[-1]: fines = np.append(fines, len(emer))
+
+    suma_total_original = np.sum(emer)
+    
+    # Si no hay emergencias, devolvemos el df intacto
+    if suma_total_original == 0 or len(inicios) == 0:
+        return df_mod
+
+    nuevo_emer = np.zeros_like(emer)
+
+    # 3. Recorrer cada flujo y forzar su volumen según la tabla
+    for idx, (ini, fin) in enumerate(zip(inicios, fines)):
+        # Si hay más de 5 picos ambientales, los extras quedan en 0 (agotamiento total)
+        peso_objetivo = patron[idx] if idx < len(patron) else 0.0
+        
+        suma_bloque = np.sum(emer[ini:fin])
+        if suma_bloque > 0:
+            # Factor matemático para escalar este pico exacto al % deseado del TOTAL
+            factor = (suma_total_original * peso_objetivo) / suma_bloque
+            nuevo_emer[ini:fin] = emer[ini:fin] * factor
+
+    df_mod[col_emer] = nuevo_emer
+    return df_mod
 
 # --- FUNCIONES DE INTEGRACIÓN DE INTERVALOS ---
 def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
@@ -669,6 +712,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
+
+    # =======================================================
+    # NUEVO: APLICAR PATRÓN DE AGOTAMIENTO DEL BANCO
+    # (64%, 17.7%, 13.7%, 3.8%, 0.8%)
+    # =======================================================
+    df = aplicar_patron_agotamiento(df)
+    # =======================================================
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
