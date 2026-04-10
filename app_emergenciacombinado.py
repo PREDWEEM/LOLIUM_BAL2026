@@ -475,7 +475,7 @@ if df is not None and modelo_ann is not None:
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
     # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
-    colorscale_hard = [[0.0, "green"], [0.19, "green"], [0.20, "red"], [1.0, "red"]]
+    colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
