@@ -2,12 +2,12 @@
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM BALCARCE 2026
 # Actualización:
-# - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
-# - ET0: Cálculo de Hargreaves-Samani anclado estrictamente en -37.7664.
-# - VALIDACIÓN: Match estricto de valores (Campo > 0 O Simulado > 0).
-# - UNIFICACIÓN MECANÍSTICA 100%: Integración por intervalos y métricas robustas (CCC, RMSE).
+# - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999 para ET0.
+# - Validación: Match estricto de valores (Campo > 0 O Simulado > 0).
+# - Se eliminan los pares (0,0) para la correlación de flujos y el gráfico 1:1.
+# - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
 # - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
-# - ESPECÍFICO BALCARCE: Modulador de agotamiento demográfico y clip 0-1.
+# - SIMPLIFICACIÓN: Se eliminan las métricas de sincronía de pulsos/cohortes.
 # ===============================================================
 
 import streamlit as st
@@ -22,12 +22,12 @@ from pathlib import Path
 import base64
 
 # ---------------------------------------------------------
-# 1. PANTALLA DE CARGA Y CONFIGURACIÓN
+# 1. PANTALLA DE CARGA ULTRARRÁPIDA
 # ---------------------------------------------------------
 if 'arranque_fase' not in st.session_state:
     st.set_page_config(page_title="PREDWEEM BALCARCE INTEGRAL", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.info("🚜 **Iniciando Servidor PREDWEEM Balcarce...** Cargando módulos de precisión.")
+    st.info("🚜 **Iniciando Servidor PREDWEEM Integral...** Cargando módulos de validación.")
     st.progress(20)
     
     st.session_state.arranque_fase = 1
@@ -37,21 +37,50 @@ if 'arranque_fase' not in st.session_state:
 if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
     st.session_state.arranque_fase = 2 
 
+# ---------------------------------------------------------
+# 2. CONFIGURACIÓN DE ESTILOS GLOBALES
+# ---------------------------------------------------------
 st.markdown("""
 <style>
     .main { background-color: #f8fafc; }
-    [data-testid="stSidebar"] { background-color: #dcfce7; border-right: 1px solid #bbf7d0; }
-    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p { color: #166534 !important; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .bio-alert { padding: 10px; border-radius: 5px; background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; margin-bottom: 10px; font-size: 0.9em; }
+    [data-testid="stSidebar"] {
+        background-color: #dcfce7;
+        border-right: 1px solid #bbf7d0;
+    }
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p {
+        color: #166534 !important;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .bio-alert {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+        margin-bottom: 10px;
+        font-size: 0.9em;
+    }
     .metric-header { color: #1e293b; font-weight: bold; margin-bottom: -10px; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    div[data-testid="stVerticalBlockBorderWrapper"],
+    
+    div[data-testid="stVerticalBlockBorderWrapper"], 
     div[data-testid="stContainerBorder"],
     div[data-testid="stContainer"] > div > div[style*="border"],
-    div[data-testid="stVerticalBlock"] > div[style*="border-radius"] { background-color: #ffffff !important; border-radius: 12px !important; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important; padding: 15px !important; border: 1px solid #e2e8f0 !important; }
+    div[data-testid="stVerticalBlock"] > div[style*="border-radius"] {
+        background-color: #ffffff !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+        padding: 15px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,14 +90,17 @@ def set_bg_hack(main_bg_file):
     try:
         with open(main_bg_file, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode()
-        st.markdown(f"""<style>.stApp {{ background-image: url(data:image/png;base64,{encoded_string}); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }}</style>""", unsafe_allow_html=True)
+        st.markdown(
+            f"""<style>.stApp {{ background-image: url(data:image/png;base64,{encoded_string}); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }}</style>""",
+            unsafe_allow_html=True
+        )
     except FileNotFoundError:
         pass
 
-set_bg_hack("fondo_predweem_v3.png")
+set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
-# 2. ROBUSTEZ Y ARCHIVOS (MOCKS)
+# 3. ROBUSTEZ Y ARCHIVOS (MOCKS)
 # ---------------------------------------------------------
 def create_mock_files_if_missing():
     if not (BASE / "IW.npy").exists():
@@ -88,7 +120,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA Y BALCARCE-SPECIFIC
+# 4. LÓGICA TÉCNICA Y VALIDACIÓN
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -107,6 +139,7 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     else: return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.7664):
+    # Latitud ajustada para Balcarce (-37.7664)
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -125,27 +158,6 @@ def balance_hidrico_superficial(prec, et0, w_max=30.0, ke_suelo=0.4):
         evaporacion_real = et0[i] * ke_suelo
         w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
     return w
-
-def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.640, 0.177, 0.137, 0.038, 0.008]):
-    df_mod = df.copy()
-    emer = df_mod[col_emer].values
-    is_emerging = emer > 0.01
-    cambios = np.diff(is_emerging.astype(int))
-    inicios = np.where(cambios == 1)[0] + 1
-    fines = np.where(cambios == -1)[0] + 1
-    if is_emerging[0]: inicios = np.insert(inicios, 0, 0)
-    if is_emerging[-1]: fines = np.append(fines, len(emer))
-    suma_total_original = np.sum(emer)
-    if suma_total_original == 0 or len(inicios) == 0: return df_mod
-    nuevo_emer = np.zeros_like(emer)
-    for idx, (ini, fin) in enumerate(zip(inicios, fines)):
-        peso_objetivo = patron[idx] if idx < len(patron) else 0.0
-        suma_bloque = np.sum(emer[ini:fin])
-        if suma_bloque > 0:
-            factor = (suma_total_original * peso_objetivo) / suma_bloque
-            nuevo_emer[ini:fin] = emer[ini:fin] * factor
-    df_mod[col_emer] = nuevo_emer
-    return df_mod
 
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -176,10 +188,7 @@ def load_data(file_uploader, default_name):
         return pd.read_csv(BASE / f"{default_name}.csv")
     elif (BASE / f"{default_name}.xlsx").exists():
         return pd.read_excel(BASE / f"{default_name}.xlsx")
-    
-    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/{default_name}.csv"
-    try: return pd.read_csv(github_url)
-    except: return None
+    return None
 
 def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     df_sync = df_campo.copy()
@@ -207,7 +216,8 @@ def calcular_metricas_validacion_integral(df_sync):
     mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
     df_activos = df_sync[mask_activos].copy()
     
-    if len(df_activos) < 2: pearson_r = 0.0
+    if len(df_activos) < 2:
+        pearson_r = 0.0
     else:
         obs = df_activos['Campo_Relativo'].values
         sim = df_activos['Sim_Relativo'].values
@@ -224,65 +234,88 @@ def calcular_metricas_validacion_integral(df_sync):
     return {"Pearson_Flujos": pearson_r, "RMSE_Acumulado": rmse_acumulado, "CCC_Acumulado": ccc_acumulado}
 
 # ---------------------------------------------------------
-# 4. INTERFAZ PRINCIPAL Y SIDEBAR
+# 5. INTERFAZ PRINCIPAL Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.title("🌾 PREDWEEM LOLIUM - BALCARCE (BA) LAT = -37.7664 LON = -58.2999")
+st.title("🌾 PREDWEEM LOLIUM - Balcarce (BA) Integral LAT = -37.7664 LON = -58.2999")
 
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
     
     with col_upload:
         archivo_meteo = st.file_uploader("1. Clima (Balcarce)", type=["xlsx", "csv"])
-        archivo_campo = st.file_uploader("2. Campo (Validación Balcarce)", type=["xlsx", "csv"])
+        archivo_campo = st.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
         
     with col_rastrojo:
         with st.container(border=True):
             st.markdown("#### 🌾 Manejo de Superficie")
-            cobertura_pct = st.slider("Cobertura de Rastrojo en Suelo (%)", min_value=0, max_value=100, value=50, step=5)
+            cobertura_pct = st.slider(
+                "Cobertura de Rastrojo en Suelo (%)",
+                min_value=0, max_value=100, value=85, step=5,
+                help="0% = Suelo desnudo / Labranza. 100% = Cobertura total (Ej. Cultivo de Servicio)."
+            )
+
             x_cobertura = [0, 30, 70, 100]
             ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.50, 0.25, 0.10]))
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
 
             html_card = f"""
-            <div style="background-color:#fff; padding:15px 20px; border-radius:10px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border:1px solid #e2e8f0; margin-top:15px;">
-                <h5 style="color:#1e293b; margin-top:0; margin-bottom:12px; font-size:0.95rem;">Parámetros Dinámicos Aplicados</h5>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span style="color:#475569; font-size:0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
-                    <span style="color:#0284c7; font-weight:bold; font-size:1.05rem;">{ke_val:.2f}</span>
+            <div style="
+                background-color: #ffffff;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                border: 1px solid #e2e8f0;
+                margin-top: 15px;
+            ">
+                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
+                    Parámetros Dinámicos Aplicados
+                </h5>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
+                    <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#475569; font-size:0.9rem;">Modulador Térmico Suelo:</span>
-                    <span style="color:#b91c1c; font-weight:bold; font-size:1.05rem;">{mod_termico:.2f}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
+                    <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
                 </div>
             </div>
             """
             st.markdown(html_card, unsafe_allow_html=True)
 
 # --- SIDEBAR ---
-st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/logo.png", use_container_width=True)
+st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_OLAVA2026/main/logo.png", use_container_width=True)
+
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria", 0.01, 0.80, 0.01)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.01, 0.80, 0.01)
+
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
+
+st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 20.0, 100.0, 30.0)
+
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
+
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1: t_base_val = st.number_input("T Base", value=2.0, step=0.5)
 with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
+
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
-dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
+
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=30.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
-df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
+df_campo_raw = load_data(archivo_campo, "balcarce_campo")
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO
+# 6. MOTOR DE CÁLCULO
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -293,6 +326,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
+    # Simulación Térmica
     df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
@@ -308,6 +342,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
+    # Predicción Neural
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
@@ -315,9 +350,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Bypass Ruptura Temprana
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
-    # Balance Hídrico Superficial (Balcarce: Lat=-37.7664)
+    # Balance Hídrico Superficial (Balcarce)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.7664)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
     humedad_relativa = df["W_superficial"] / w_max_val
@@ -328,20 +363,18 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
+    # Escudo Termofisiológico
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
-    # BALCARCE: Patrón de Agotamiento y Techo 0-1
-    df = aplicar_patron_agotamiento(df)
-    df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
-
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
+
     fecha_hoy = pd.Timestamp.now().normalize()
     if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
-    
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
-    dga_hoy, dga_7dias, dias_stress = 0.0, 0.0, 0
+
+    dga_hoy, dga_7dias = 0.0, 0.0
     fecha_inicio_ventana, fecha_control = None, None
     msg_estado = "Esperando pico de emergencia..."
 
@@ -350,13 +383,15 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
         df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
+        
         if not df_control.empty: fecha_control = df_control.iloc[0]["Fecha"]
         dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+        
         dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum() if idx_hoy + 8 <= len(df) else dga_hoy
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
-        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
+    # Métricas Robustas
     pearson_r, rmse_acum, ccc_acum = 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
 
@@ -372,6 +407,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             t50_obs_date = df_campo[df_campo['cum_plm2_norm'] >= 0.5].iloc[0][col_fecha]
             df_sim_trunc = df[df['Fecha'] <= df_campo[col_fecha].max()].copy()
             tot_emer = df_sim_trunc['EMERREL'].sum()
+            
             if tot_emer > 0:
                 df_sim_trunc['cum_emer_norm'] = df_sim_trunc['EMERREL'].cumsum() / tot_emer
                 t50_sim_date = df_sim_trunc[df_sim_trunc['cum_emer_norm'] >= 0.5].iloc[0]['Fecha']
@@ -385,12 +421,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
             lead_time = (fecha_control - (df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana)).days
 
     # -----------------------------------------------------
-    # TRANSFORMACIÓN LOGARÍTMICA (Opción Analítica)
+    # TRANSFORMACIÓN LOGARÍTMICA (Opción 2 Analítica)
     # -----------------------------------------------------
     c_log = 0.01
     df["EMERREL_LOG"] = np.log10(df["EMERREL"] + c_log)
     umbral_er_log = np.log10(umbral_er + c_log)
-    if df_campo is not None: df_campo['Campo_Normalizado_LOG'] = np.log10(df_campo['Campo_Normalizado'] + c_log)
+    if df_campo is not None:
+        df_campo['Campo_Normalizado_LOG'] = np.log10(df_campo['Campo_Normalizado'] + c_log)
 
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
@@ -436,9 +473,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
             if fecha_inicio_ventana:
                 st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
-                if dias_stress > 0: st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
-                if fecha_control: st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
-                else: st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control.")
+                if fecha_control: st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd**.")
+                else: st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd.")
             else: st.warning(f"⏳ Esperando primera alerta (Tasa >= {umbral_er}).")
 
         with col_gauge:
@@ -449,17 +485,28 @@ if df_meteo_raw is not None and modelo_ann is not None:
             st.markdown("---")
             st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 VALIDACIÓN DE TRAYECTORIA Y PRECISIÓN</p>", unsafe_allow_html=True)
             col_curva, col_disp = st.columns([2, 1])
+            
             with col_curva:
                 fig_acum = go.Figure()
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado[col_fecha], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real a Campo (%)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='#dc2626', width=2)))
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado[col_fecha], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado Modelo (%)', line=dict(color='#166534', width=3, dash='dash')))
                 st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas de Monitoreo", yaxis_title="Emergencia Acumulada (%)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
+
             with col_disp:
                 mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
                 df_disp = df_sincronizado[mask_disp]
+                
                 fig_1to1 = go.Figure()
                 fig_1to1.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
-                fig_1to1.add_trace(go.Scatter(x=df_disp['Campo_Relativo'], y=df_disp['Sim_Relativo'], mode='markers', name='Eventos Activos', marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')), text=df_disp[col_fecha].dt.strftime('%d-%m-%Y'), hovertemplate="<b>%{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"))
+                fig_1to1.add_trace(go.Scatter(
+                    x=df_disp['Campo_Relativo'], 
+                    y=df_disp['Sim_Relativo'], 
+                    mode='markers', 
+                    name='Eventos Activos',
+                    marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')),
+                    text=df_disp[col_fecha].dt.strftime('%d-%m-%Y'),
+                    hovertemplate="<b>%{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
+                ))
                 st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos (Valores Activos > 0)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=400, showlegend=False), use_container_width=True)
 
     with tab2:
@@ -482,6 +529,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             dists = [dtw_distance(obs_norm, m[JD_COM <= jd_corte] / m[JD_COM <= jd_corte].max() if m[JD_COM <= jd_corte].max() > 0 else m[JD_COM <= jd_corte]) for m in cluster_model["curves_interp"]]
             pred = int(np.argmin(dists))
             cols = {0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}
+
             c1, c2 = st.columns([3, 1])
             with c1:
                 fp = go.Figure()
@@ -492,7 +540,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 nombres_patrones = {0: "🌾 Bimodal", 1: "🌱 Temprano", 2: "🍂 Tardío"}
                 st.success(f"### {nombres_patrones.get(pred, 'Desconocido')}")
                 st.metric("DTW Score", f"{min(dists):.2f}")
-        else: st.info("Datos insuficientes para clasificación DTW.")
+        else:
+            st.info("Datos insuficientes para clasificación DTW.")
 
     with tab4:
         st.subheader("🧪 Curva de Respuesta Fisiológica")
@@ -507,7 +556,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_10_clean.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_10.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
