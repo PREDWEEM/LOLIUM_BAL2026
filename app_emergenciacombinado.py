@@ -127,7 +127,7 @@ def balance_hidrico_superficial(prec, et0, w_max=30.0, ke_suelo=0.4):
         w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
     return w
 
-def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.640, 0.177, 0.137, 0.038, 0.008]):
+def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.657, 0.170, 0.082, 0.035, 0.032, 0.022, 0.002, 0.002, 0.002, 0.002, 0]):
     df_mod = df.copy()
     emer = df_mod[col_emer].values
     is_emerging = emer > 0.01
