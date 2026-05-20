@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM BALCARCE 2026
@@ -7,7 +8,7 @@
 # - VALIDACIÓN: Match estricto de valores (Campo > 0 O Simulado > 0).
 # - UNIFICACIÓN MECANÍSTICA 100%: Integración por intervalos y métricas robustas (CCC, RMSE).
 # - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
-# - ESPECÍFICO BALCARCE: Modulador dinámico de agotamiento del banco y latencia inicial.
+# - ESPECÍFICO BALCARCE: Modulador de agotamiento demográfico y clip 0-1.
 # ===============================================================
 
 import streamlit as st
@@ -126,6 +127,27 @@ def balance_hidrico_superficial(prec, et0, w_max=30.0, ke_suelo=0.4):
         w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
     return w
 
+def aplicar_patron_agotamiento(df, col_emer='EMERREL', patron=[0.657, 0.170, 0.082, 0.035, 0.032, 0.022, 0.002, 0.002, 0.002, 0.002, 0]):
+    df_mod = df.copy()
+    emer = df_mod[col_emer].values
+    is_emerging = emer > 0.01
+    cambios = np.diff(is_emerging.astype(int))
+    inicios = np.where(cambios == 1)[0] + 1
+    fines = np.where(cambios == -1)[0] + 1
+    if is_emerging[0]: inicios = np.insert(inicios, 0, 0)
+    if is_emerging[-1]: fines = np.append(fines, len(emer))
+    suma_total_original = np.sum(emer)
+    if suma_total_original == 0 or len(inicios) == 0: return df_mod
+    nuevo_emer = np.zeros_like(emer)
+    for idx, (ini, fin) in enumerate(zip(inicios, fines)):
+        peso_objetivo = patron[idx] if idx < len(patron) else 0.0
+        suma_bloque = np.sum(emer[ini:fin])
+        if suma_bloque > 0:
+            factor = (suma_total_original * peso_objetivo) / suma_bloque
+            nuevo_emer[ini:fin] = emer[ini:fin] * factor
+    df_mod[col_emer] = nuevo_emer
+    return df_mod
+
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
         self.IW, self.bIW, self.LW, self.bLW = IW, bIW, LW, bLW
@@ -207,7 +229,7 @@ def calcular_metricas_validacion_integral(df_sync):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.title("🌾 PREDWEEM by GUILLERMO R. CHANTRE - BALCARCE (BA) LAT = -37.7664 LON = -58.2999")
+st.title("🌾 PREDWEEM LOLIUM - BALCARCE (BA) LAT = -37.7664 LON = -58.2999")
 
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
@@ -311,23 +333,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
-    # ===============================================================
-    # 7. AJUSTES POBLACIONALES: LATENCIA Y AGOTAMIENTO DE COHORTE
-    # ===============================================================
-    # A. Latencia inicial (Dormición Primaria)
-    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
-
-    # B. Agotamiento Dinámico del Banco de Semillas
-    emergencia_bruta_acumulada = df['EMERREL'].cumsum()
-    total_emergencia_esperada = df['EMERREL'].sum()
-    
-    if total_emergencia_esperada > 0:
-        df['Factor_Agotamiento'] = 1.0 - (emergencia_bruta_acumulada / total_emergencia_esperada)
-        df['Factor_Agotamiento'] = np.clip(df['Factor_Agotamiento'], 0.0, 1.0)
-        df['EMERREL'] = df['EMERREL'] * df['Factor_Agotamiento']
-        
+    # BALCARCE: Patrón de Agotamiento y Techo 0-1
+    df = aplicar_patron_agotamiento(df)
     df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
-    # ===============================================================
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     fecha_hoy = pd.Timestamp.now().normalize()
