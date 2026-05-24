@@ -204,25 +204,54 @@ def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     df_sync['Sim_Acumulado'] = df_sync['Sim_Relativo'].cumsum()
     return df_sync
 
+
 def calcular_metricas_validacion_integral(df_sync):
     mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
     df_activos = df_sync[mask_activos].copy()
     
-    if len(df_activos) < 2: pearson_r = 0.0
+    if len(df_activos) < 2:
+        pearson_r, nse_flujos, kge_flujos = 0.0, 0.0, 0.0
     else:
         obs = df_activos['Campo_Relativo'].values
         sim = df_activos['Sim_Relativo'].values
-        pearson_r = np.corrcoef(obs, sim)[0, 1] if np.std(obs) > 0 and np.std(sim) > 0 else 0.0
+        
+        # 1. Pearson (Correlación de Sincronía)
+        std_obs, std_sim = np.std(obs), np.std(sim)
+        pearson_r = np.corrcoef(obs, sim)[0, 1] if std_obs > 0 and std_sim > 0 else 0.0
+        
+        # 2. NSE (Nash-Sutcliffe Efficiency) sobre Flujos
+        var_obs_sum = np.sum((obs - np.mean(obs))**2)
+        nse_flujos = 1 - (np.sum((sim - obs)**2) / var_obs_sum) if var_obs_sum > 0 else 0.0
+        
+        # 3. KGE (Kling-Gupta Efficiency) sobre Flujos
+        if np.mean(obs) > 0 and std_obs > 0:
+            r = pearson_r
+            alpha = std_sim / std_obs               # Componente de variabilidad
+            beta = np.mean(sim) / np.mean(obs)      # Componente de volumen/sesgo
+            kge_flujos = 1 - np.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
+        else:
+            kge_flujos = 0.0
 
+    # --- Métricas sobre la curva Acumulada (Trayectoria y Volumen) ---
     obs_acum, sim_acum = df_sync['Campo_Acumulado'].values, df_sync['Sim_Acumulado'].values
     rmse_acumulado = np.sqrt(np.mean((obs_acum - sim_acum)**2))
     
-    mean_obs, mean_sim = np.mean(obs_acum), np.mean(sim_acum)
-    var_obs, var_sim = np.var(obs_acum), np.var(sim_acum)
-    covar = np.mean((obs_acum - mean_obs) * (sim_acum - mean_sim))
-    ccc_acumulado = (2 * covar) / (var_obs + var_sim + (mean_obs - mean_sim)**2) if (var_obs + var_sim) > 0 else 0.0
+    mean_obs_ac, mean_sim_ac = np.mean(obs_acum), np.mean(sim_acum)
+    var_obs_ac, var_sim_ac = np.var(obs_acum), np.var(sim_acum)
+    covar_ac = np.mean((obs_acum - mean_obs_ac) * (sim_acum - mean_sim_ac))
     
-    return {"Pearson_Flujos": pearson_r, "RMSE_Acumulado": rmse_acumulado, "CCC_Acumulado": ccc_acumulado}
+    # 4. CCC (Lin's Concordance) sobre Trayectoria
+    denominador_ccc = var_obs_ac + var_sim_ac + (mean_obs_ac - mean_sim_ac)**2
+    ccc_acumulado = (2 * covar_ac) / denominador_ccc if denominador_ccc > 0 else 0.0
+    
+    return {
+        "Pearson_Flujos": pearson_r, 
+        "NSE_Flujos": nse_flujos,
+        "KGE_Flujos": kge_flujos,
+        "RMSE_Acumulado": rmse_acumulado, 
+        "CCC_Acumulado": ccc_acumulado
+    }
+
 
 # ---------------------------------------------------------
 # 4. INTERFAZ PRINCIPAL Y SIDEBAR
@@ -358,15 +387,24 @@ if df_meteo_raw is not None and modelo_ann is not None:
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
-    pearson_r, rmse_acum, ccc_acum = 0.0, 0.0, 0.0
+    
+    # Inicialización de métricas
+    pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum = 0.0, 0.0, 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
 
     if df_campo is not None:
         df_sincronizado = sincronizar_series_por_intervalos(df, df_campo, col_fecha, col_plm2)
         metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
-        pearson_r, rmse_acum, ccc_acum = metricas_robustas["Pearson_Flujos"], metricas_robustas["RMSE_Acumulado"], metricas_robustas["CCC_Acumulado"]
-        df_campo["Sim_Intervalo"] = df_sincronizado["Sim_Relativo"] 
-
+        
+        pearson_r = metricas_robustas["Pearson_Flujos"]
+        nse_flujos = metricas_robustas["NSE_Flujos"]
+        kge_flujos = metricas_robustas["KGE_Flujos"]
+        rmse_acum = metricas_robustas["RMSE_Acumulado"]
+        ccc_acum = metricas_robustas["CCC_Acumulado"]
+        
+        df_campo["Sim_Intervalo"] = df_sincronizado["Sim_Relativo"]
+    
+   
         tot_plm2 = df_campo[col_plm2].sum()
         if tot_plm2 > 0:
             df_campo['cum_plm2_norm'] = df_campo[col_plm2].cumsum() / tot_plm2
@@ -404,12 +442,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with tab1:
         if df_campo is not None:
             st.markdown("<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (INTEGRAL)</p>", unsafe_allow_html=True)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Correlación (Pearson)", f"{pearson_r:.3f}", "Sincronía (Valores > 0)")
-            c2.metric("Concordancia (CCC)", f"{ccc_acum:.3f}", "Fidelidad de Trayectoria")
-            c3.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Magnitud de desvío", delta_color="inverse")
-            c4.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
-
+            c1, c2, c3, c4, c5 = st.columns(5)
+            
+            # KGE y NSE asumen el protagonismo como los estándares de eficiencia
+            c1.metric("Eficiencia (KGE)", f"{kge_flujos:.3f}", "Ajuste Global")
+            c2.metric("Predictivo (NSE)", f"{nse_flujos:.3f}", "Flujos")
+            c3.metric("Trayectoria (CCC)", f"{ccc_acum:.3f}", "Curva Acum.")
+            c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acum.", delta_color="inverse")
+            c5.metric("Desfase (T50)", f"{desfase_t50:+d} días", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+    
+  
             if fecha_control:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL</p>", unsafe_allow_html=True)
                 l1, l2, l3 = st.columns(3)
