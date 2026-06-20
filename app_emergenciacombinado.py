@@ -341,7 +341,7 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bal
     return df_resultados.sort_values(by="NSE (Flujos Reales)", ascending=False).reset_index(drop=True)
 
 # ---------------------------------------------------------
-# 5. INTERFAZ PRINCIPAL Y SIDEBAR
+# 4. INTERFAZ PRINCIPAL Y CARGA DE LOTE
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
@@ -376,6 +376,12 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             </div>
             """
             st.markdown(html_card, unsafe_allow_html=True)
+
+# =========================================================================
+# 🛠️ GLOBAL DECLARATIONS & SCOPE ROBUSTNESS
+# =========================================================================
+df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
+df_campo_raw = load_data(archivo_campo, "BALCARCE_campo")
 
 # --- SIDEBAR ---
 st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/logo.png", use_container_width=True)
@@ -422,7 +428,7 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
             st.error("Se requieren datos de Clima y Campo.")
 
 # ---------------------------------------------------------
-# 6. MOTOR DE CÁLCULO
+# 5. MOTOR DE CÁLCULO GENERAL
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -563,7 +569,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             c2.metric("Predictivo (NSE)", f"{nse_flujos:.3f}", "Flujos Puros")
             c3.metric("Trayectoria (CCC)", f"{ccc_acum:.3f}", "Curva Acum.")
             c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acumulado", delta_color="inverse")
-            c5.metric("Desfase (T50)", f"{desfase_t50:+d}px", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+            c5.metric("Desfase (T50)", f"{desfase_t50:+d} días", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
     
             if fecha_control:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL EN LOTE</p>", unsafe_allow_html=True)
