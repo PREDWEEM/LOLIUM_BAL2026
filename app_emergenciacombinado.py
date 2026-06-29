@@ -354,7 +354,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
 # --- SIDEBAR ---
 st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026/main/logo.png", use_container_width=True)
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria", 0.001, 0.80, 0.001)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria", 0.001, 0.80, 0.005)
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
 umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 20.0, 100.0, 30.0)
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 0)
