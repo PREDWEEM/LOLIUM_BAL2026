@@ -6,7 +6,7 @@
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo de emergencia mantenido estrictamente en los primeros 25 días del año.
 # - ESPECÍFICO BALCARCE: Techo 0-1 (Patrón de agotamiento eliminado).
-# - AJUSTE ESTIVAL: Bypass de Choque Hídrico condicionado térmicamente para evitar falsos positivos.
+# - AJUSTE ESTIVAL: Mayor inercia térmica (15 días) y Bypass Hídrico estricto (<22°C) para evitar falsos positivos en 2023/2024.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Integración Dinámica por Intervalo Real (Event-to-Event).
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido paramétrico sobre W_Max y Ke usando ventanas reales.
 # - COINCIDENCIA OPERATIVA: Métricas F1-Score, Exactitud Global y Matriz de Confusión interactiva.
@@ -324,8 +324,9 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bal
             df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
             df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
             
-            df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
-            df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
+            # --- Ajuste Optimizador: Mayor inercia térmica ---
+            df_sim["Tmedia_15d"] = df_sim["Tmedia_aire"].rolling(window=15, min_periods=1).mean()
+            df_sim.loc[df_sim["Tmedia_15d"] >= 24.0, "EMERREL"] = 0.0
             
             # ESPECÍFICO BALCARCE EN EL OPTIMIZADOR
             df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
@@ -452,7 +453,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # CÁLCULOS TÉRMICOS ANTICIPADOS PARA MÁSCARA DE BYPASS
     # ---------------------------------------------------------
     df["Tmedia"] = df["Tmedia_aire"]
-    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    # Aumentamos la inercia a 15 días para evitar falsos positivos de verano
+    df["Tmedia_15d"] = df["Tmedia"].rolling(window=15, min_periods=1).mean()
 
     df_campo, col_fecha, col_plm2 = None, None, None
     if df_campo_raw is not None:
@@ -468,12 +470,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # Bloqueo de latencia temprana (Primeros 25 días - Mantenido fijo según solicitud)
+    # Bloqueo de latencia temprana (Primeros 25 días - Mantenido fijo)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
 
-    # Bypass Ruptura Temprana Condicionado a Caída de Temperatura
+    # Bypass Ruptura Temprana Condicionado a un quiebre térmico otoñal REAL (< 22°C)
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico) & (df["Tmedia_10d"] < umbral_termoinhibicion)
+    mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico) & (df["Tmedia_15d"] < 22.0)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # Balance Hídrico Superficial (Balcarce: Lat=-37.7664)
@@ -487,8 +489,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # Restricción final de Termoinhibición Estival
-    df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
+    # Restricción final de Termoinhibición Estival con mayor inercia (15 días)
+    df.loc[df["Tmedia_15d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
     # BALCARCE: Techo 0-1
     df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
