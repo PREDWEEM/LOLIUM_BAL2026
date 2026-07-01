@@ -454,7 +454,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # ---------------------------------------------------------
     df["Tmedia"] = df["Tmedia_aire"]
     # Aumentamos la inercia a 15 días para evitar falsos positivos de verano
-    df["Tmedia_15d"] = df["Tmedia"].rolling(window=15, min_periods=1).mean()
+    df["Tmedia_15d"] = df["Tmedia"].rolling(window=20, min_periods=1).mean()
 
     df_campo, col_fecha, col_plm2 = None, None, None
     if df_campo_raw is not None:
