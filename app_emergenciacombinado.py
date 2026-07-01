@@ -1,18 +1,3 @@
-# -*- coding: utf-8 -*-
-# ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.15 — LOLIUM BALCARCE 2026
-# Actualización y Rigor Científico:
-# - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
-# - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - LATENCIA INICIAL: Bloqueo de emergencia mantenido estrictamente en los primeros 25 días del año.
-# - ESPECÍFICO BALCARCE: Techo 0-1 (Patrón de agotamiento eliminado).
-# - AJUSTE ESTIVAL: Mayor inercia térmica (15 días) y Bypass Hídrico estricto (<22°C) para evitar falsos positivos en 2023/2024.
-# - VALIDACIÓN DE FRECUENCIA VARIABLE: Integración Dinámica por Intervalo Real (Event-to-Event).
-# - OPTIMIZADOR 2D BIO-FÍSICO: Barrido paramétrico sobre W_Max y Ke usando ventanas reales.
-# - COINCIDENCIA OPERATIVA: Métricas F1-Score, Exactitud Global y Matriz de Confusión interactiva.
-# - UX VISUAL: Sombreados de fondo vinculados a las fechas de muestreo real y 
-#   sombreado de la Ventana de Aplicación (600 - 800 °Cd).
-# ===============================================================
 
 import streamlit as st
 import numpy as np
