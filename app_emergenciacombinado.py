@@ -4,7 +4,8 @@
 # Actualización y Rigor Científico:
 # - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
+# - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 45 días del año.
+# - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - ESPECÍFICO BALCARCE: Techo 0-1 (Patrón de agotamiento eliminado).
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), protegiendo la varianza pura de los flujos.
@@ -165,7 +166,6 @@ def load_data(file_uploader, default_name):
     try: return pd.read_csv(github_url)
     except: return None
 
-# RESTAURADO: Sincronización Rigurosa Event-to-Event para métricas categóricas puras
 def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
     df_campo = df_campo.sort_values(col_fecha).copy()
     df_campo['Campo_Acum_Abs'] = df_campo[col_plm2].cumsum()
@@ -259,7 +259,7 @@ def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
     obs_eventos = df_sync['Campo_Relativo'] > umbral_deteccion
     sim_eventos = df_sync['Sim_Relativo'] > umbral_deteccion
 
-    hits = np.sum(obs_eventos & sim_eventos)                 
+    hits = np.sum(obs_eventos & sim_eventos)                  
     misses = np.sum(obs_eventos & ~sim_eventos)              
     false_alarms = np.sum(~obs_eventos & sim_eventos)        
     correct_negatives = np.sum(~obs_eventos & ~sim_eventos)  
@@ -325,10 +325,9 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bal
             df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
             df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
             
-            df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
-            df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
+            df_sim["Tmedia_5d"] = df_sim["Tmedia_aire"].rolling(window=5, min_periods=1).mean()
+            df_sim.loc[df_sim["Tmedia_5d"] >= 24.0, "EMERREL"] = 0.0
             
-            # ESPECÍFICO BALCARCE EN EL OPTIMIZADOR
             df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
             
             df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
@@ -463,12 +462,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # Bloqueo de latencia temprana (Primeros 25 días)
-    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+    # Bloqueo de latencia temprana corregido (Primeros 45 días)
+    df.loc[df["Julian_days"] <= 45, "EMERREL"] = 0.0
 
-    # Bypass Ruptura Temprana
+    # Bypass Ruptura Temprana (Sincronizado post-latencia de 45 días)
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    mask_ruptura = (df["Julian_days"] > 45) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # Balance Hídrico Superficial (Balcarce: Lat=-37.7664)
@@ -483,8 +482,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
     df["Tmedia"] = df["Tmedia_aire"]
-    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
-    df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
+    df["Tmedia_5d"] = df["Tmedia"].rolling(window=5, min_periods=1).mean()
+    df.loc[df["Tmedia_5d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
     # BALCARCE: Techo 0-1
     df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
@@ -644,8 +643,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL EN LOTE</p>", unsafe_allow_html=True)
                 l1, l2, l3 = st.columns(3)
                 l1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación")
-                l2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo Real")
-                l3.metric("Lead Time", f"{lead_time} días", "Ventana de Alerta")
+                l2.metric("Lag (Desfase)", f"{peak_lag} dias", "Vs Pico de Campo Real")
+                l3.metric("Lead Time", f"{lead_time} dias", "Ventana de Alerta")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
