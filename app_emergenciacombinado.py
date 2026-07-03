@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.15 — LOLIUM BALCARCE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.16 — LOLIUM BALCARCE 2026
 # Actualización y Rigor Científico:
 # - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
@@ -8,7 +8,8 @@
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - CHOQUE HÍDRICO: Umbral acumulado de 3 días fijado en 45 mm.
 # - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
-# - ESPECÍFICO BALCARCE: Techo 0-1 (Patrón de agotamiento eliminado).
+# - AGOTAMIENTO DE COHORTE: Decaimiento Weibull calibrado conjuntamente con flujos 2025–2026.
+# - ESPECÍFICO BALCARCE: Techo 0-1 antes del agotamiento fisiológico.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), protegiendo la varianza pura de los flujos.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido paramétrico sobre W_Max y Ke usando ventanas reales.
@@ -66,6 +67,14 @@ st.markdown("""
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
 UMBRAL_PRIMER_PICO = 0.70
+
+# Decaimiento de la cohorte emergente, ajustado sobre los flujos relativos
+# observados de Balcarce 2025 y 2026, normalizados respecto del primer pico.
+# Modelo: D(t) = exp[-(t / tau)^beta]
+# Ajuste conjunto: R² = 0.981; tau = 3.566 días; beta = 0.4868.
+DECAY_TAU_DAYS_FIT = 3.5656
+DECAY_BETA_FIT = 0.48684
+DECAY_R2_FIT = 0.9810
 
 def set_bg_hack(main_bg_file):
     try:
@@ -157,6 +166,59 @@ def aplicar_filtro_primer_pico(df, umbral=UMBRAL_PRIMER_PICO):
         df["EMERREL"] = 0.0
 
     return df, idx_primer_pico
+
+def aplicar_decaimiento_cohorte_weibull(
+    df,
+    idx_primer_pico,
+    tau_dias=DECAY_TAU_DAYS_FIT,
+    beta=DECAY_BETA_FIT,
+    intensidad=1.0
+):
+    """
+    Atenúa la emergencia potencial después del primer pico validado mediante
+    una función Weibull de agotamiento de la cohorte germinable:
+
+        D(t) = exp[-(t / tau)^beta]
+
+    donde t son los días desde el primer pico. La intensidad permite mezclar
+    entre ausencia de agotamiento (0) y agotamiento calibrado completo (1):
+
+        D_aplicado = 1 - intensidad * (1 - D)
+
+    El valor del día del pico permanece igual a 1 y los días previos no se
+    modifican. Se conservan columnas de auditoría para el reporte diario.
+    """
+    df = df.copy()
+    tau_dias = max(float(tau_dias), 0.01)
+    beta = max(float(beta), 0.01)
+    intensidad = float(np.clip(intensidad, 0.0, 1.0))
+
+    df["EMERREL_ANTES_DECAIMIENTO"] = df["EMERREL"].copy()
+    df["Dias_Desde_Primer_Pico"] = 0.0
+    df["Factor_Decaimiento_Base"] = 1.0
+    df["Factor_Decaimiento"] = 1.0
+
+    if idx_primer_pico is None:
+        return df
+
+    fecha_pico = pd.Timestamp(df.loc[idx_primer_pico, "Fecha"])
+    dias_desde_pico = (
+        pd.to_datetime(df["Fecha"]) - fecha_pico
+    ).dt.days.clip(lower=0).astype(float)
+
+    factor_base = np.exp(-np.power(dias_desde_pico / tau_dias, beta))
+    factor_base = np.where(pd.to_datetime(df["Fecha"]) < fecha_pico, 1.0, factor_base)
+    factor_aplicado = 1.0 - intensidad * (1.0 - factor_base)
+
+    df["Dias_Desde_Primer_Pico"] = dias_desde_pico
+    df["Factor_Decaimiento_Base"] = factor_base
+    df["Factor_Decaimiento"] = factor_aplicado
+    df["EMERREL"] = np.clip(
+        df["EMERREL_ANTES_DECAIMIENTO"] * df["Factor_Decaimiento"],
+        0.0,
+        1.0
+    )
+    return df
 
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -320,7 +382,10 @@ def optimizar_parametros_hidricos_2d(
     df_campo,
     modelo_ann,
     latitud_balcarce=-37.7664,
-    umbral_choque_hidrico=45.0
+    umbral_choque_hidrico=45.0,
+    tau_decaimiento=DECAY_TAU_DAYS_FIT,
+    beta_decaimiento=DECAY_BETA_FIT,
+    intensidad_decaimiento=1.0
 ):
     df = df_meteo.copy()
     df['Fecha'] = pd.to_datetime(df['Fecha'])
@@ -377,10 +442,17 @@ def optimizar_parametros_hidricos_2d(
             
             df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
 
-            # Misma validación de inicio usada por el motor principal
-            df_sim, _ = aplicar_filtro_primer_pico(
+            # Misma validación de inicio y agotamiento usados por el motor principal
+            df_sim, idx_primer_pico_opt = aplicar_filtro_primer_pico(
                 df_sim,
                 umbral=UMBRAL_PRIMER_PICO
+            )
+            df_sim = aplicar_decaimiento_cohorte_weibull(
+                df_sim,
+                idx_primer_pico_opt,
+                tau_dias=tau_decaimiento,
+                beta=beta_decaimiento,
+                intensidad=intensidad_decaimiento
             )
 
             df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
@@ -459,6 +531,46 @@ st.sidebar.info(
     f"El inicio de la campaña se habilita únicamente cuando "
     f"EMERREL > {UMBRAL_PRIMER_PICO:.2f}."
 )
+
+with st.sidebar.expander("📉 Agotamiento de la cohorte", expanded=True):
+    activar_decaimiento = st.checkbox(
+        "Aplicar decaimiento post-pico",
+        value=True,
+        help="Reduce los pulsos tardíos a medida que se agota la cohorte germinable."
+    )
+    intensidad_decaimiento = st.slider(
+        "Intensidad del decaimiento",
+        min_value=0.0,
+        max_value=1.0,
+        value=1.0,
+        step=0.05,
+        help="0 = sin agotamiento; 1 = curva calibrada completa."
+    )
+    tau_decaimiento = st.number_input(
+        "Escala tau (días)",
+        min_value=0.5,
+        max_value=30.0,
+        value=float(DECAY_TAU_DAYS_FIT),
+        step=0.1,
+        format="%.2f"
+    )
+    beta_decaimiento = st.number_input(
+        "Forma beta",
+        min_value=0.10,
+        max_value=3.00,
+        value=float(DECAY_BETA_FIT),
+        step=0.01,
+        format="%.3f"
+    )
+    st.caption(
+        f"Calibración conjunta 2025–2026: tau={DECAY_TAU_DAYS_FIT:.2f} d, "
+        f"beta={DECAY_BETA_FIT:.3f}, R²={DECAY_R2_FIT:.3f}."
+    )
+
+intensidad_decaimiento_aplicada = (
+    intensidad_decaimiento if activar_decaimiento else 0.0
+)
+
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 0)
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1: t_base_val = st.number_input("T Base", value=2.0, step=0.5)
@@ -495,7 +607,10 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
                     df_campo_opt,
                     modelo_ann,
                     latitud_balcarce=-37.7664,
-                    umbral_choque_hidrico=umbral_choque_hidrico
+                    umbral_choque_hidrico=umbral_choque_hidrico,
+                    tau_decaimiento=tau_decaimiento,
+                    beta_decaimiento=beta_decaimiento,
+                    intensidad_decaimiento=intensidad_decaimiento_aplicada
                 )
                 
             st.success("¡Barrido 2D por eventos completado!")
@@ -565,6 +680,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df, idx_primer_pico = aplicar_filtro_primer_pico(
         df,
         umbral=UMBRAL_PRIMER_PICO
+    )
+
+    # Agotamiento progresivo de la cohorte germinable después del primer pico.
+    # Esta capa corrige la repetición de picos tardíos que el ANN puede generar
+    # cuando vuelven a aparecer condiciones hídricas favorables.
+    df = aplicar_decaimiento_cohorte_weibull(
+        df,
+        idx_primer_pico,
+        tau_dias=tau_decaimiento,
+        beta=beta_decaimiento,
+        intensidad=intensidad_decaimiento_aplicada
     )
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
@@ -866,9 +992,69 @@ if df_meteo_raw is not None and modelo_ann is not None:
         else: st.info("Datos insuficientes para clasificación DTW.")
 
     with tab4:
-        st.subheader("🧪 Curva de Respuesta Fisiológica")
-        x_temps = np.linspace(0, 45, 200)
-        st.plotly_chart(go.Figure().add_trace(go.Scatter(x=x_temps, y=[calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps], mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy')), use_container_width=True)
+        st.subheader("🧪 Curvas de Respuesta Fisiológica")
+        col_termica, col_decay = st.columns(2)
+
+        with col_termica:
+            x_temps = np.linspace(0, 45, 200)
+            fig_termica = go.Figure().add_trace(
+                go.Scatter(
+                    x=x_temps,
+                    y=[calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps],
+                    mode='lines',
+                    name='Tiempo térmico diario',
+                    line=dict(color='#2563eb', width=4),
+                    fill='tozeroy'
+                )
+            )
+            fig_termica.update_layout(
+                title="Respuesta térmica triangular",
+                xaxis_title="Temperatura media (°C)",
+                yaxis_title="Grados-día efectivos",
+                height=390
+            )
+            st.plotly_chart(fig_termica, use_container_width=True)
+
+        with col_decay:
+            x_dias_decay = np.linspace(0, 120, 241)
+            decay_base = np.exp(
+                -np.power(x_dias_decay / max(float(tau_decaimiento), 0.01),
+                          max(float(beta_decaimiento), 0.01))
+            )
+            decay_aplicado = 1.0 - intensidad_decaimiento_aplicada * (1.0 - decay_base)
+            fig_decay = go.Figure()
+            fig_decay.add_trace(
+                go.Scatter(
+                    x=x_dias_decay,
+                    y=decay_base,
+                    mode='lines',
+                    name='Curva Weibull calibrada',
+                    line=dict(color='#b45309', width=4)
+                )
+            )
+            if intensidad_decaimiento_aplicada < 0.999:
+                fig_decay.add_trace(
+                    go.Scatter(
+                        x=x_dias_decay,
+                        y=decay_aplicado,
+                        mode='lines',
+                        name='Factor aplicado',
+                        line=dict(color='#166534', width=3, dash='dash')
+                    )
+                )
+            fig_decay.update_layout(
+                title="Agotamiento post-pico de la cohorte",
+                xaxis_title="Días desde el primer pico",
+                yaxis_title="Factor de disponibilidad",
+                yaxis=dict(range=[0, 1.05]),
+                height=390,
+                legend=dict(orientation='h', yanchor='bottom', y=1.02)
+            )
+            st.plotly_chart(fig_decay, use_container_width=True)
+            st.caption(
+                "D(t)=exp[-(t/tau)^beta]. El factor multiplica la tasa diaria "
+                "simulada después del primer pico validado."
+            )
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -885,17 +1071,27 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 'T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke',
                 'Mod_Termico', 'Umbral_Termoinhibicion',
                 'Umbral_Choque_Hidrico_3d',
-                'Umbral_Primer_Pico'
+                'Umbral_Primer_Pico',
+                'Decaimiento_Activo',
+                'Decaimiento_Tau_Dias',
+                'Decaimiento_Beta',
+                'Decaimiento_Intensidad',
+                'Decaimiento_R2_Calibracion_2025_2026'
             ],
             'Valor': [
                 t_base_val, t_opt_max, t_critica, w_max_val, ke_val,
                 mod_termico, umbral_termoinhibicion,
                 umbral_choque_hidrico,
-                UMBRAL_PRIMER_PICO
+                UMBRAL_PRIMER_PICO,
+                activar_decaimiento,
+                tau_decaimiento,
+                beta_decaimiento,
+                intensidad_decaimiento_aplicada,
+                DECAY_R2_FIT
             ]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_15_UX.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_16_Decaimiento.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
