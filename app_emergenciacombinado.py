@@ -8,7 +8,6 @@
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - CHOQUE HÍDRICO: Umbral acumulado de 3 días fijado en 45 mm.
 # - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
-# - AGOTAMIENTO DE COHORTE: Decaimiento Weibull calibrado conjuntamente con flujos 2025–2026.
 # - VALIDACIÓN ANN REAL: Intensidad 0.95 validada con los pesos productivos y parámetros operativos por defecto.
 # - INTERVALOS CORREGIDOS: Incluye el primer flujo observado y normaliza hasta el último muestreo.
 # - ENTRADAS XLSX ROBUSTAS: Conversión explícita de TMAX, TMIN y precipitación a valores numéricos.
