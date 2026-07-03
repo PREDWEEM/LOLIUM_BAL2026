@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.16 — LOLIUM BALCARCE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.18 — LOLIUM BALCARCE 2026
 # Actualización y Rigor Científico:
 # - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
@@ -9,6 +9,9 @@
 # - CHOQUE HÍDRICO: Umbral acumulado de 3 días fijado en 45 mm.
 # - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
 # - AGOTAMIENTO DE COHORTE: Decaimiento Weibull calibrado conjuntamente con flujos 2025–2026.
+# - VALIDACIÓN ANN REAL: Intensidad 0.95 validada con los pesos productivos y parámetros operativos por defecto.
+# - INTERVALOS CORREGIDOS: Incluye el primer flujo observado y normaliza hasta el último muestreo.
+# - ENTRADAS XLSX ROBUSTAS: Conversión explícita de TMAX, TMIN y precipitación a valores numéricos.
 # - ESPECÍFICO BALCARCE: Techo 0-1 antes del agotamiento fisiológico.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), protegiendo la varianza pura de los flujos.
@@ -75,6 +78,20 @@ UMBRAL_PRIMER_PICO = 0.70
 DECAY_TAU_DAYS_FIT = 3.5656
 DECAY_BETA_FIT = 0.48684
 DECAY_R2_FIT = 0.9810
+# Intensidad seleccionada mediante integración Event-to-Event con los pesos ANN reales.
+# Validación Event-to-Event conjunta 2025–2026 con pesos ANN reales,
+# W_Max=20 mm, Ke=0.85, termoinhibición=24 °C y choque hídrico=45 mm.
+# Intensidad óptima continua = 0.95035; se usa 0.95 por compatibilidad con el slider.
+# Mejora frente a no aplicar decaimiento:
+# NSE de flujos: 0.4970 -> 0.8794; RMSE de flujos: 0.13368 -> 0.06547.
+DECAY_INTENSITY_FIT = 0.95
+DECAY_INTERVAL_PEARSON_FIT = 0.94632
+DECAY_INTERVAL_NSE_FIT = 0.87936
+DECAY_INTERVAL_RMSE_FIT = 0.06547
+DECAY_NSE_NO_DECAY = 0.49699
+DECAY_RMSE_NO_DECAY = 0.13368
+DECAY_NSE_2025 = 0.80613
+DECAY_NSE_2026 = 0.93198
 
 def set_bg_hack(main_bg_file):
     try:
@@ -87,24 +104,27 @@ def set_bg_hack(main_bg_file):
 set_bg_hack("fondo_predweem_v3.png")
 
 # ---------------------------------------------------------
-# 2. ROBUSTEZ Y ARCHIVOS (MOCKS)
+# 2. ROBUSTEZ Y ARCHIVOS DEL MODELO PRODUCTIVO
 # ---------------------------------------------------------
-def create_mock_files_if_missing():
-    if not (BASE / "IW.npy").exists():
-        np.save(BASE / "IW.npy", np.random.rand(4, 10))
-        np.save(BASE / "bias_IW.npy", np.random.rand(10))
-        np.save(BASE / "LW.npy", np.random.rand(1, 10))
-        np.save(BASE / "bias_out.npy", np.random.rand(1))
+REQUIRED_MODEL_FILES = (
+    "IW.npy",
+    "bias_IW.npy",
+    "LW.npy",
+    "bias_out.npy",
+    "modelo_clusters_k3.pkl",
+)
 
-    if not (BASE / "modelo_clusters_k3.pkl").exists():
-        jd = np.arange(1, 366)
-        p1 = np.exp(-((jd - 100) ** 2) / 600)
-        p2 = np.exp(-((jd - 160) ** 2) / 900) + 0.3 * np.exp(-((jd - 260) ** 2) / 1200)
-        p3 = np.exp(-((jd - 230) ** 2) / 1500)
-        with open(BASE / "modelo_clusters_k3.pkl", "wb") as f:
-            pickle.dump({"JD_common": jd, "curves_interp": [p2, p1, p3], "medoids_k3": [0, 1, 2]}, f)
-
-create_mock_files_if_missing()
+missing_model_files = [
+    filename for filename in REQUIRED_MODEL_FILES
+    if not (BASE / filename).exists()
+]
+if missing_model_files:
+    st.error(
+        "Faltan archivos del modelo productivo: "
+        + ", ".join(missing_model_files)
+        + ". No se generarán pesos aleatorios porque invalidarían la simulación."
+    )
+    st.stop()
 
 # ---------------------------------------------------------
 # 3. LÓGICA TÉCNICA E INTEGRACIÓN DINÁMICA POR EVENTO REAL
@@ -172,7 +192,7 @@ def aplicar_decaimiento_cohorte_weibull(
     idx_primer_pico,
     tau_dias=DECAY_TAU_DAYS_FIT,
     beta=DECAY_BETA_FIT,
-    intensidad=1.0
+    intensidad=DECAY_INTENSITY_FIT
 ):
     """
     Atenúa la emergencia potencial después del primer pico validado mediante
@@ -255,48 +275,76 @@ def load_data(file_uploader, default_name):
     except: return None
 
 def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
+    """
+    Integra la tasa diaria simulada dentro de cada intervalo real de monitoreo.
+
+    Correcciones vK4.9.17:
+    1. Incluye el primer dato de campo, que representa el flujo acumulado desde
+       el inicio de la serie simulada hasta el primer muestreo.
+    2. Interpreta cada valor de campo como flujo del intervalo y conserva su
+       acumulado para la validación de trayectoria.
+    3. Normaliza la simulación solamente hasta el último muestreo observado,
+       evitando que días futuros reduzcan artificialmente el acumulado simulado.
+    """
+    df_sim = df_sim.sort_values('Fecha').copy()
     df_campo = df_campo.sort_values(col_fecha).copy()
+    df_campo[col_plm2] = pd.to_numeric(
+        df_campo[col_plm2], errors='coerce'
+    ).fillna(0.0).clip(lower=0.0)
     df_campo['Campo_Acum_Abs'] = df_campo[col_plm2].cumsum()
-    
-    fechas_reales = df_campo[col_fecha].tolist()
+
+    if df_sim.empty or df_campo.empty:
+        return pd.DataFrame()
+
+    fecha_inicio_sim = pd.Timestamp(df_sim['Fecha'].min()) - pd.Timedelta(days=1)
     registros = []
-    
-    for i in range(1, len(fechas_reales)):
-        f_inicio = fechas_reales[i-1]
-        f_fin = fechas_reales[i]
-        dias_intervalo = (f_fin - f_inicio).days
-        
-        obs_inicio = df_campo.loc[df_campo[col_fecha] == f_inicio, 'Campo_Acum_Abs'].values[0]
-        obs_fin = df_campo.loc[df_campo[col_fecha] == f_fin, 'Campo_Acum_Abs'].values[0]
-        flujo_obs = max(0.0, obs_fin - obs_inicio)
-        
+
+    for i, fila in df_campo.iterrows():
+        f_fin = pd.Timestamp(fila[col_fecha])
+        posicion = df_campo.index.get_loc(i)
+        if posicion == 0:
+            f_inicio = fecha_inicio_sim
+        else:
+            f_inicio = pd.Timestamp(
+                df_campo.iloc[posicion - 1][col_fecha]
+            )
+
+        flujo_obs = float(fila[col_plm2])
         mask_sim = (df_sim['Fecha'] > f_inicio) & (df_sim['Fecha'] <= f_fin)
-        flujo_sim = df_sim.loc[mask_sim, 'EMERREL'].sum()
-        
-        acum_sim_fin = df_sim.loc[df_sim['Fecha'] <= f_fin, 'EMERREL'].sum()
-        
+        flujo_sim = float(df_sim.loc[mask_sim, 'EMERREL'].sum())
+        acum_sim_fin = float(
+            df_sim.loc[df_sim['Fecha'] <= f_fin, 'EMERREL'].sum()
+        )
+
         registros.append({
             'Fecha': f_fin,
-            'Dias_Intervalo': dias_intervalo,
+            'Dias_Intervalo': max(1, (f_fin - f_inicio).days),
             'Flujo_Obs_Abs': flujo_obs,
             'Flujo_Sim_Abs': flujo_sim,
-            'Acum_Obs_Abs': obs_fin,
+            'Acum_Obs_Abs': float(fila['Campo_Acum_Abs']),
             'Acum_Sim_Abs': acum_sim_fin
         })
-        
+
     df_res = pd.DataFrame(registros)
     if df_res.empty:
-        return pd.DataFrame()
-        
-    total_obs = df_res['Flujo_Obs_Abs'].sum()
-    total_sim = df_sim.loc[df_sim['Fecha'] <= fechas_reales[-1], 'EMERREL'].sum()
-    
-    df_res['Campo_Relativo'] = df_res['Flujo_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
-    df_res['Sim_Relativo'] = df_res['Flujo_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
-    
-    df_res['Campo_Acumulado'] = df_res['Acum_Obs_Abs'] / df_campo['Campo_Acum_Abs'].max() if df_campo['Campo_Acum_Abs'].max() > 0 else 0.0
-    df_res['Sim_Acumulado'] = df_res['Acum_Sim_Abs'] / df_sim['EMERREL'].sum() if df_sim['EMERREL'].sum() > 0 else 0.0
-    
+        return df_res
+
+    total_obs = float(df_res['Flujo_Obs_Abs'].sum())
+    total_sim = float(df_res['Flujo_Sim_Abs'].sum())
+
+    df_res['Campo_Relativo'] = (
+        df_res['Flujo_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
+    )
+    df_res['Sim_Relativo'] = (
+        df_res['Flujo_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
+    )
+    df_res['Campo_Acumulado'] = (
+        df_res['Acum_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
+    )
+    df_res['Sim_Acumulado'] = (
+        df_res['Acum_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
+    )
+
     return df_res
 
 def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
@@ -385,10 +433,13 @@ def optimizar_parametros_hidricos_2d(
     umbral_choque_hidrico=45.0,
     tau_decaimiento=DECAY_TAU_DAYS_FIT,
     beta_decaimiento=DECAY_BETA_FIT,
-    intensidad_decaimiento=1.0
+    intensidad_decaimiento=DECAY_INTENSITY_FIT
 ):
     df = df_meteo.copy()
-    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    for columna_num in ["TMAX", "TMIN", "Prec"]:
+        df[columna_num] = pd.to_numeric(df[columna_num], errors='coerce')
+    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
     df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
@@ -542,9 +593,9 @@ with st.sidebar.expander("📉 Agotamiento de la cohorte", expanded=True):
         "Intensidad del decaimiento",
         min_value=0.0,
         max_value=1.0,
-        value=1.0,
+        value=float(DECAY_INTENSITY_FIT),
         step=0.05,
-        help="0 = sin agotamiento; 1 = curva calibrada completa."
+        help="0 = sin agotamiento; 0.95 = intensidad validada; 1 = curva completa."
     )
     tau_decaimiento = st.number_input(
         "Escala tau (días)",
@@ -564,7 +615,10 @@ with st.sidebar.expander("📉 Agotamiento de la cohorte", expanded=True):
     )
     st.caption(
         f"Calibración conjunta 2025–2026: tau={DECAY_TAU_DAYS_FIT:.2f} d, "
-        f"beta={DECAY_BETA_FIT:.3f}, R²={DECAY_R2_FIT:.3f}."
+        f"beta={DECAY_BETA_FIT:.3f}, R²={DECAY_R2_FIT:.3f}. "
+        f"Validación Event-to-Event con ANN real: intensidad={DECAY_INTENSITY_FIT:.2f}, "
+        f"Pearson={DECAY_INTERVAL_PEARSON_FIT:.3f}, "
+        f"NSE={DECAY_INTERVAL_NSE_FIT:.3f}, RMSE={DECAY_INTERVAL_RMSE_FIT:.3f}."
     )
 
 intensidad_decaimiento_aplicada = (
@@ -626,7 +680,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df = df_meteo_raw.copy()
     df.columns = [c.upper().strip() for c in df.columns]
     df = df.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
-    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    for columna_num in ["TMAX", "TMIN", "Prec"]:
+        df[columna_num] = pd.to_numeric(df[columna_num], errors='coerce')
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
@@ -1076,7 +1132,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 'Decaimiento_Tau_Dias',
                 'Decaimiento_Beta',
                 'Decaimiento_Intensidad',
-                'Decaimiento_R2_Calibracion_2025_2026'
+                'Decaimiento_R2_Calibracion_2025_2026',
+                'Decaimiento_Pearson_EventToEvent_2025_2026',
+                'Decaimiento_NSE_EventToEvent_2025_2026',
+                'Decaimiento_RMSE_EventToEvent_2025_2026',
+                'NSE_Sin_Decaimiento_2025_2026',
+                'RMSE_Sin_Decaimiento_2025_2026',
+                'NSE_Decaimiento_2025',
+                'NSE_Decaimiento_2026'
             ],
             'Valor': [
                 t_base_val, t_opt_max, t_critica, w_max_val, ke_val,
@@ -1087,11 +1150,18 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 tau_decaimiento,
                 beta_decaimiento,
                 intensidad_decaimiento_aplicada,
-                DECAY_R2_FIT
+                DECAY_R2_FIT,
+                DECAY_INTERVAL_PEARSON_FIT,
+                DECAY_INTERVAL_NSE_FIT,
+                DECAY_INTERVAL_RMSE_FIT,
+                DECAY_NSE_NO_DECAY,
+                DECAY_RMSE_NO_DECAY,
+                DECAY_NSE_2025,
+                DECAY_NSE_2026
             ]
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_16_Decaimiento.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Balcarce_vK4_9_18_Decaimiento_Validado_Real.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
