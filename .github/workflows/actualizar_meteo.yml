@@ -62,7 +62,9 @@ jobs:
 
           # Mantener en false para no mezclar pronósticos vencidos con observaciones.
           RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
-        run: python actualizar_meteo_balcarce.py
+        run: |
+          python actualizar_meteo_balcarce.py
+          python postprocesar_prec_p50_balcarce.py
 
       - name: Guardar archivos actualizados
         run: |
