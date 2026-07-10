@@ -542,7 +542,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             cobertura_pct = st.slider("Cobertura de Rastrojo en Suelo (%)", min_value=0, max_value=100, value=0, step=5)
             x_cobertura = [0, 30, 70, 100]
             ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.85, 0.50, 0.25, 0.10]))
-            mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
+            mod_termico = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.90, 0.85, 0.80]))
 
             html_card = f"""
             <div style="background-color:#fff; padding:15px 20px; border-radius:10px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border:1px solid #e2e8f0; margin-top:15px;">
