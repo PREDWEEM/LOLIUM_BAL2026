@@ -539,7 +539,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
     with col_rastrojo:
         with st.container(border=True):
             st.markdown("#### 🌾 Manejo de Superficie")
-            cobertura_pct = st.slider("Cobertura de Rastrojo en Suelo (%)", min_value=0, max_value=100, value=0, step=5)
+            cobertura_pct = st.slider("Cobertura de Rastrojo en Suelo (%)", min_value=0, max_value=100, value=50, step=5)
             x_cobertura = [0, 30, 70, 100]
             ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.85, 0.50, 0.25, 0.10]))
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.90, 0.85, 0.80]))
