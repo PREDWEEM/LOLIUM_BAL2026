@@ -2,6 +2,7 @@
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.18 VISUAL V3 — LOLIUM BALCARCE 2026
 # Actualización y Rigor Científico:
+# - ENTRADAS ANN CORREGIDAS: JD, TMAX aire, TMIN aire y precipitación.
 # - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 45 días del año.
@@ -447,7 +448,7 @@ def optimizar_parametros_hidricos_2d(
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=latitud_balcarce)
     
-    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
+    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     
     rango_w_max = np.arange(10.0, 36.0, 2.0)
@@ -553,7 +554,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
                     <span style="color:#0284c7; font-weight:bold; font-size:1.05rem;">{ke_val:.2f}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#475569; font-size:0.9rem;">Modulador Térmico Suelo:</span>
+                    <span style="color:#475569; font-size:0.9rem;">Modulador térmico diagnóstico:</span>
                     <span style="color:#b91c1c; font-weight:bold; font-size:1.05rem;">{mod_termico:.2f}</span>
                 </div>
             </div>
@@ -701,7 +702,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
+    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
