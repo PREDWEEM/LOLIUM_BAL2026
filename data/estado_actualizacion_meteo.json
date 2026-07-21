@@ -1,10 +1,10 @@
 {
-  "ejecucion_utc": "2026-07-21T12:06:36+00:00",
+  "ejecucion_utc": "2026-07-21T19:58:54+00:00",
   "sitio": "Balcarce",
   "latitud": -37.7664,
   "longitud": -58.2999,
   "estado_siga": "SIGA_remoto",
-  "ultima_observacion_siga": "2026-07-19",
+  "ultima_observacion_siga": "2026-07-20",
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "inicio_pronostico": "2026-07-21",
   "fin_pronostico": "2026-07-27",
@@ -14,7 +14,6 @@
     "2026-04-25",
     "2026-06-21",
     "2026-06-22",
-    "2026-06-23",
-    "2026-07-20"
+    "2026-06-23"
   ]
 }
