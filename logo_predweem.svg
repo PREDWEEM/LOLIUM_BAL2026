@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="220" viewBox="0 0 960 220" role="img" aria-labelledby="title desc">
+  <title id="title">PREDWEEM Balcarce</title>
+  <desc id="desc">Logotipo local para el despliegue privado de PREDWEEM Balcarce.</desc>
+  <rect width="960" height="220" rx="28" fill="#ffffff"/>
+  <g transform="translate(38 24)">
+    <circle cx="86" cy="86" r="78" fill="#eef8ef" stroke="#1f7a3f" stroke-width="5"/>
+    <path d="M87 145 C84 109 88 76 111 42" fill="none" stroke="#185f34" stroke-width="10" stroke-linecap="round"/>
+    <path d="M93 95 C64 91 44 76 35 50 C63 46 87 58 99 80 C102 87 100 91 93 95Z" fill="#62ad3f"/>
+    <path d="M103 72 C109 43 129 24 158 17 C158 47 143 72 117 84 C109 87 104 82 103 72Z" fill="#94c11f"/>
+    <path d="M85 123 C61 120 44 108 34 88 C59 84 80 93 91 110 C95 116 92 121 85 123Z" fill="#2f8f46"/>
+  </g>
+  <text x="220" y="104" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700" letter-spacing="3" fill="#123d2a">PREDWEEM</text>
+  <text x="224" y="154" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="600" letter-spacing="5" fill="#2f7d43">BALCARCE · 2026</text>
+  <line x1="222" y1="174" x2="900" y2="174" stroke="#a7cf52" stroke-width="4"/>
+  <text x="224" y="202" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#4b6357">Predicción de emergencia y fenología de Lolium multiflorum</text>
+</svg>
