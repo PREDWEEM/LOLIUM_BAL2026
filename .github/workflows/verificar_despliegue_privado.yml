@@ -1,0 +1,76 @@
+name: Verificar despliegue privado
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app_emergenciacombinado.py"
+      - "app_emergenciacombinado_core.py"
+      - "private_runtime.py"
+      - "requirements.txt"
+      - "logo_predweem.svg"
+      - "fondo_predweem_v3.png"
+      - "*.npy"
+      - "*.pkl"
+      - ".gitignore"
+      - "README.md"
+      - "PRIVATE_REPOSITORY.md"
+      - ".github/workflows/verificar_despliegue_privado.yml"
+      - ".github/workflows/actualizar_meteo.yml"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "meteo_daily.csv"
+      - "data/**"
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verificar recursos y adaptación privada
+        run: python private_runtime.py
+
+      - name: Verificar sintaxis Python
+        run: |
+          python -m py_compile \
+            app_emergenciacombinado.py \
+            app_emergenciacombinado_core.py \
+            private_runtime.py \
+            actualizar_meteo_balcarce.py \
+            postprocesar_prec_p50_balcarce.py
+
+      - name: Verificar archivos de migración
+        shell: bash
+        run: |
+          set -e
+          test -f .gitignore
+          test -f README.md
+          test -f PRIVATE_REPOSITORY.md
+          test -f .github/workflows/actualizar_meteo.yml
+          test -f logo_predweem.svg
+
+      - name: Verificar ausencia de secretos versionados
+        shell: bash
+        run: |
+          set -e
+          if find . -path './.git' -prune -o \
+            \( -name 'secrets.toml' -o -name '.env' -o -name '*.pem' -o -name '*.key' \) \
+            -print | grep -q .; then
+            echo "Se encontraron archivos sensibles versionados."
+            exit 1
+          fi
+          echo "No se detectaron archivos sensibles comunes."
