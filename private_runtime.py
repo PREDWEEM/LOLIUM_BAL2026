@@ -65,7 +65,8 @@ def build_private_core_source(core_path: Path) -> str:
 
     source = _replace_once(
         source,
-        r"def load_data\(file_uploader, default_name\):.*?\n\ndef sincronizar_intervalos_variables",
+        r"^def load_data\(file_uploader, default_name\):"
+        r".*?(?=^def |\Z)",
         '''def load_data(file_uploader, default_name):
     """Carga un archivo aportado por el usuario o desde el checkout privado."""
     if file_uploader:
@@ -92,9 +93,9 @@ def build_private_core_source(core_path: Path) -> str:
     return None
 
 
-def sincronizar_intervalos_variables''',
+''',
         "carga local de datos",
-        flags=re.DOTALL,
+        flags=re.DOTALL | re.MULTILINE,
     )
 
     source = _replace_once(
