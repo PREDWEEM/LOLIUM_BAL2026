@@ -16,7 +16,7 @@
 # - ESPECÍFICO BALCARCE: Techo 0-1 antes del agotamiento fisiológico.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), protegiendo la varianza pura de los flujos.
-# - OPTIMIZADOR 2D BIO-FÍSICO: Barrido paramétrico sobre W_Max y Ke usando ventanas reales.
+# - OPTIMIZADOR 2D BIO-FÍSICO: Barrido sobre W_Max y cobertura (Ke derivado físicamente) usando ventanas reales.
 # - COINCIDENCIA OPERATIVA: Métricas F1-Score, Exactitud Global y Matriz de Confusión interactiva.
 # - SINCRONÍA DE INICIO: Evaluación del desfase temporal del primer flujo (Gatillo de DGA).
 # - UX VISUAL: Sombreados de fondo vinculados a las fechas de muestreo real y 
@@ -157,14 +157,44 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.7664):
     trange = np.maximum(tmax - tmin, 0)
     return np.maximum(0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange), 0)
 
-def balance_hidrico_superficial(prec, et0, w_max=30.0, ke_suelo=0.4):
+def balance_hidrico_superficial(
+    prec,
+    et0,
+    w_max=30.0,
+    ke_suelo=0.4,
+    exponente_kr=0.0,
+    devolver_kr=False,
+):
+    """Balance hídrico común con reducción Kr configurable.
+
+    exponente_kr=0 conserva evaporación constante ET0 × Ke.
+    exponente_kr=1 reproduce el secado dinámico usado en San Pedro/Tres Arroyos.
+    """
+    prec = np.asarray(prec, dtype=float)
+    et0 = np.asarray(et0, dtype=float)
     n = len(prec)
-    w = np.zeros(n)
-    w[0] = w_max / 2.0 
+    agua = np.zeros(n, dtype=float)
+    kr_diario = np.ones(n, dtype=float)
+
+    if n == 0:
+        return (agua, kr_diario) if devolver_kr else agua
+    if float(w_max) <= 0.0:
+        raise ValueError("Wmax debe ser mayor que cero.")
+
+    exponente = max(float(exponente_kr), 0.0)
+    agua[0] = float(w_max) / 2.0
     for i in range(1, n):
-        evaporacion_real = et0[i] * ke_suelo
-        w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
-    return w
+        fraccion_agua = float(np.clip(agua[i - 1] / float(w_max), 0.0, 1.0))
+        kr = 1.0 if exponente == 0.0 else fraccion_agua ** exponente
+        kr_diario[i] = kr
+        evaporacion_real = et0[i] * float(ke_suelo) * kr
+        agua[i] = np.clip(
+            agua[i - 1] + prec[i] - evaporacion_real,
+            0.0,
+            float(w_max),
+        )
+
+    return (agua, kr_diario) if devolver_kr else agua
 
 def aplicar_filtro_primer_pico(df, umbral=UMBRAL_PRIMER_PICO):
     """
@@ -275,78 +305,196 @@ def load_data(file_uploader, default_name):
     try: return pd.read_csv(github_url)
     except: return None
 
+def parametros_superficie(cobertura_pct):
+    """Deriva Ke y el modulador térmico desde cobertura físicamente reproducible."""
+    cobertura = float(np.clip(cobertura_pct, 0.0, 100.0))
+    puntos = [0.0, 30.0, 70.0, 100.0]
+    ke_suelo = float(np.interp(cobertura, puntos, [0.85, 0.50, 0.25, 0.10]))
+    modulador_termico = float(np.interp(cobertura, puntos, [0.95, 0.90, 0.85, 0.80]))
+    return ke_suelo, modulador_termico
+
+
+def simular_emergencia_local(
+    df_meteo,
+    modelo_ann,
+    cobertura_pct,
+    w_max,
+    umbral_termoinhibicion=24.0,
+    umbral_choque_hidrico=45.0,
+    exponente_kr=0.0,
+    latitud=-37.7664,
+    latencia_jd=25,
+    techo_choque=1.00,
+    calentamiento_suelo=0.0,
+    tau_decaimiento=None,
+    beta_decaimiento=None,
+    intensidad_decaimiento=None,
+):
+    """Motor biofísico único utilizado por la app y por el optimizador."""
+    df = df_meteo.copy()
+    df.columns = [str(c).upper().strip() for c in df.columns]
+    df = df.rename(columns={
+        "FECHA": "Fecha",
+        "DATE": "Fecha",
+        "DATETIME": "Fecha",
+        "PREC": "Prec",
+        "PRECIPITACION": "Prec",
+        "PRECIPITACIÓN": "Prec",
+        "LLUVIA": "Prec",
+    })
+    requeridas = ["Fecha", "TMAX", "TMIN", "Prec"]
+    faltantes = [c for c in requeridas if c not in df.columns]
+    if faltantes:
+        raise ValueError("Faltan columnas meteorológicas: " + ", ".join(faltantes))
+
+    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+    for columna in ("TMAX", "TMIN", "Prec"):
+        df[columna] = pd.to_numeric(df[columna], errors="coerce")
+    df = (
+        df.dropna(subset=requeridas)
+        .sort_values("Fecha")
+        .drop_duplicates("Fecha", keep="last")
+        .reset_index(drop=True)
+    )
+    if df.empty:
+        raise ValueError("No hay datos meteorológicos válidos.")
+    df["Prec"] = df["Prec"].clip(lower=0.0)
+    df["Julian_days"] = df["Fecha"].dt.dayofyear
+
+    ke_suelo, modulador_termico = parametros_superficie(cobertura_pct)
+    df["Cobertura_Rastrojo"] = float(cobertura_pct)
+    df["Ke_Suelo"] = ke_suelo
+    df["Exponente_Kr"] = float(exponente_kr)
+
+    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2.0
+    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2.0
+    df["TMAX_suelo"] = df["Tmedia_aire"] + amplitud_termica * modulador_termico
+    df["TMIN_suelo"] = df["Tmedia_aire"] - amplitud_termica * modulador_termico
+
+    df["Tmedia"] = df["Tmedia_aire"]
+
+    entradas_ann = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    emerrel_raw, _ = modelo_ann.predict(entradas_ann)
+    df["EMERREL_RAW_ANN"] = np.clip(emerrel_raw, 0.0, 1.0)
+    df["EMERREL_RAW"] = df["EMERREL_RAW_ANN"].copy()
+    df["EMERREL"] = df["EMERREL_RAW_ANN"].copy()
+
+    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+    mascara_choque = (
+        (df["Julian_days"] > int(latencia_jd))
+        & (df["Julian_days"] <= 110)
+        & (df["Prec_3d"] >= float(umbral_choque_hidrico))
+    )
+    df.loc[mascara_choque, "EMERREL"] = np.maximum(
+        df.loc[mascara_choque, "EMERREL"],
+        float(techo_choque),
+    )
+    df["Choque_Hidrico"] = mascara_choque
+
+    df["ET0"] = calcular_et0_hargreaves(
+        df["Julian_days"].values,
+        df["TMAX"].values,
+        df["TMIN"].values,
+        latitud=float(latitud),
+    )
+    agua, kr_diario = balance_hidrico_superficial(
+        df["Prec"].values,
+        df["ET0"].values,
+        w_max=float(w_max),
+        ke_suelo=ke_suelo,
+        exponente_kr=float(exponente_kr),
+        devolver_kr=True,
+    )
+    df["W_superficial"] = agua
+    df["Kr_Diario"] = kr_diario
+    humedad_relativa = df["W_superficial"] / max(float(w_max), 1e-12)
+    df["Humedad_Relativa"] = humedad_relativa
+    df["Hydric_Factor"] = 1.0 / (1.0 + np.exp(-10.0 * (humedad_relativa - 0.30)))
+    df["EMERREL"] *= df["Hydric_Factor"]
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    df["Lluvia_Recarga"] = (df["Prec"] >= float(w_max)).cummax()
+    df.loc[~df["Lluvia_Recarga"], "EMERREL"] = 0.0
+
+    df["Tmedia_5d"] = df["Tmedia_aire"].rolling(window=5, min_periods=1).mean()
+    df["Termoinhibida"] = df["Tmedia_5d"] >= float(umbral_termoinhibicion)
+    df.loc[df["Termoinhibida"], "EMERREL"] = 0.0
+    df.loc[df["Julian_days"] <= int(latencia_jd), "EMERREL"] = 0.0
+    df["EMERREL"] = np.clip(df["EMERREL"], 0.0, 1.0)
+
+    df, idx_primer_pico = aplicar_filtro_primer_pico(df, umbral=UMBRAL_PRIMER_PICO)
+
+    if (
+        tau_decaimiento is not None
+        and beta_decaimiento is not None
+        and intensidad_decaimiento is not None
+    ):
+        df = aplicar_decaimiento_cohorte_weibull(
+            df,
+            idx_primer_pico,
+            tau_dias=float(tau_decaimiento),
+            beta=float(beta_decaimiento),
+            intensidad=float(intensidad_decaimiento),
+        )
+    df["EMERAC"] = df["EMERREL"].cumsum()
+    total_emergencia = float(df["EMERREL"].sum())
+    df["EMERAC_NORMALIZADA"] = (
+        df["EMERAC"] / total_emergencia if total_emergencia > 0.0 else 0.0
+    )
+    return df, idx_primer_pico, ke_suelo, modulador_termico
 def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
-    """
-    Integra la tasa diaria simulada dentro de cada intervalo real de monitoreo.
-
-    Correcciones vK4.9.17:
-    1. Incluye el primer dato de campo, que representa el flujo acumulado desde
-       el inicio de la serie simulada hasta el primer muestreo.
-    2. Interpreta cada valor de campo como flujo del intervalo y conserva su
-       acumulado para la validación de trayectoria.
-    3. Normaliza la simulación solamente hasta el último muestreo observado,
-       evitando que días futuros reduzcan artificialmente el acumulado simulado.
-    """
-    df_sim = df_sim.sort_values('Fecha').copy()
-    df_campo = df_campo.sort_values(col_fecha).copy()
-    df_campo[col_plm2] = pd.to_numeric(
-        df_campo[col_plm2], errors='coerce'
-    ).fillna(0.0).clip(lower=0.0)
-    df_campo['Campo_Acum_Abs'] = df_campo[col_plm2].cumsum()
-
-    if df_sim.empty or df_campo.empty:
+    """Sincronización Event-to-Event robusta equivalente a Lartigau."""
+    simulacion = df_sim.sort_values("Fecha").copy()
+    campo = df_campo.sort_values(col_fecha).reset_index(drop=True).copy()
+    if simulacion.empty or campo.empty:
         return pd.DataFrame()
 
-    fecha_inicio_sim = pd.Timestamp(df_sim['Fecha'].min()) - pd.Timedelta(days=1)
+    campo[col_fecha] = pd.to_datetime(campo[col_fecha], errors="coerce")
+    campo[col_plm2] = pd.to_numeric(campo[col_plm2], errors="coerce")
+    campo = campo.dropna(subset=[col_fecha, col_plm2]).reset_index(drop=True)
+    if campo.empty:
+        return pd.DataFrame()
+    campo[col_plm2] = campo[col_plm2].clip(lower=0.0)
+    campo["Campo_Acum_Abs"] = campo[col_plm2].cumsum()
+
+    inicio_simulacion = pd.Timestamp(simulacion["Fecha"].min()) - pd.Timedelta(days=1)
     registros = []
-
-    for i, fila in df_campo.iterrows():
-        f_fin = pd.Timestamp(fila[col_fecha])
-        posicion = df_campo.index.get_loc(i)
-        if posicion == 0:
-            f_inicio = fecha_inicio_sim
-        else:
-            f_inicio = pd.Timestamp(
-                df_campo.iloc[posicion - 1][col_fecha]
-            )
-
-        flujo_obs = float(fila[col_plm2])
-        mask_sim = (df_sim['Fecha'] > f_inicio) & (df_sim['Fecha'] <= f_fin)
-        flujo_sim = float(df_sim.loc[mask_sim, 'EMERREL'].sum())
-        acum_sim_fin = float(
-            df_sim.loc[df_sim['Fecha'] <= f_fin, 'EMERREL'].sum()
-        )
-
+    for i, fila in campo.iterrows():
+        inicio = inicio_simulacion if i == 0 else pd.Timestamp(campo.iloc[i - 1][col_fecha])
+        fin = pd.Timestamp(fila[col_fecha])
+        mascara = (simulacion["Fecha"] > inicio) & (simulacion["Fecha"] <= fin)
         registros.append({
-            'Fecha': f_fin,
-            'Dias_Intervalo': max(1, (f_fin - f_inicio).days),
-            'Flujo_Obs_Abs': flujo_obs,
-            'Flujo_Sim_Abs': flujo_sim,
-            'Acum_Obs_Abs': float(fila['Campo_Acum_Abs']),
-            'Acum_Sim_Abs': acum_sim_fin
+            "Inicio": inicio,
+            "Fecha": fin,
+            "Dias_Intervalo": max(1, int((fin - inicio).days)),
+            "Flujo_Obs_Abs": float(fila[col_plm2]),
+            "Flujo_Sim_Abs": float(simulacion.loc[mascara, "EMERREL"].sum()),
+            "Acum_Obs_Abs": float(fila["Campo_Acum_Abs"]),
+            "Acum_Sim_Abs": float(
+                simulacion.loc[simulacion["Fecha"] <= fin, "EMERREL"].sum()
+            ),
         })
 
-    df_res = pd.DataFrame(registros)
-    if df_res.empty:
-        return df_res
-
-    total_obs = float(df_res['Flujo_Obs_Abs'].sum())
-    total_sim = float(df_res['Flujo_Sim_Abs'].sum())
-
-    df_res['Campo_Relativo'] = (
-        df_res['Flujo_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
-    )
-    df_res['Sim_Relativo'] = (
-        df_res['Flujo_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
-    )
-    df_res['Campo_Acumulado'] = (
-        df_res['Acum_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
-    )
-    df_res['Sim_Acumulado'] = (
-        df_res['Acum_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
+    resultado = pd.DataFrame(registros)
+    total_observado = float(resultado["Flujo_Obs_Abs"].sum())
+    ultima_fecha = pd.Timestamp(campo[col_fecha].max())
+    total_simulado = float(
+        simulacion.loc[simulacion["Fecha"] <= ultima_fecha, "EMERREL"].sum()
     )
 
-    return df_res
+    resultado["Campo_Relativo"] = (
+        resultado["Flujo_Obs_Abs"] / total_observado if total_observado > 0.0 else 0.0
+    )
+    resultado["Sim_Relativo"] = (
+        resultado["Flujo_Sim_Abs"] / total_simulado if total_simulado > 0.0 else 0.0
+    )
+    resultado["Campo_Acumulado"] = (
+        resultado["Acum_Obs_Abs"] / total_observado if total_observado > 0.0 else 0.0
+    )
+    resultado["Sim_Acumulado"] = (
+        resultado["Acum_Sim_Abs"] / total_simulado if total_simulado > 0.0 else 0.0
+    )
+    return resultado
 
 def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
     if df_sync.empty or len(df_sync) < 2:
@@ -430,99 +578,67 @@ def optimizar_parametros_hidricos_2d(
     df_meteo,
     df_campo,
     modelo_ann,
-    latitud_balcarce=-37.7664,
+    latitud_local=-37.7664,
     umbral_choque_hidrico=45.0,
-    tau_decaimiento=DECAY_TAU_DAYS_FIT,
-    beta_decaimiento=DECAY_BETA_FIT,
-    intensidad_decaimiento=DECAY_INTENSITY_FIT
+    umbral_termoinhibicion=24.0,
+    exponente_kr=0.0,
+    calentamiento_suelo=0.0,
+    tau_decaimiento=None,
+    beta_decaimiento=None,
+    intensidad_decaimiento=None,
 ):
-    df = df_meteo.copy()
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-    for columna_num in ["TMAX", "TMIN", "Prec"]:
-        df[columna_num] = pd.to_numeric(df[columna_num], errors='coerce')
-    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
-    df["Julian_days"] = df["Fecha"].dt.dayofyear
-    
-    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
-    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
-    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * 0.90)
-    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=latitud_balcarce)
-    
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-    emerrel_raw, _ = modelo_ann.predict(X)
-    
+    """Calibra cobertura y Wmax reutilizando exactamente el motor principal."""
+    campo = df_campo.copy()
+    col_fecha = "FECHA" if "FECHA" in campo.columns else "Fecha" if "Fecha" in campo.columns else campo.columns[0]
+    col_plm2 = "PLM2" if "PLM2" in campo.columns else campo.columns[1]
+    campo[col_fecha] = pd.to_datetime(campo[col_fecha], errors="coerce")
+    campo[col_plm2] = pd.to_numeric(campo[col_plm2], errors="coerce")
+    campo = campo.dropna(subset=[col_fecha, col_plm2]).sort_values(col_fecha)
+
+    rango_cobertura = np.arange(0, 101, 5)
     rango_w_max = np.arange(10.0, 36.0, 2.0)
-    rango_ke = np.arange(0.2, 0.85, 0.1)
-    
     resultados = []
-    col_fecha = df_campo.columns[0]
-    col_plm2 = df_campo.columns[1]
-            
-    for w_max in rango_w_max:
-        for ke in rango_ke:
-            df_sim = df.copy()
-            df_sim["EMERREL_RAW"] = np.maximum(emerrel_raw, 0.0)
-            df_sim.loc[df_sim["Julian_days"] <= 25, "EMERREL_RAW"] = 0.0
-            
-            df_sim["W_superficial"] = balance_hidrico_superficial(df_sim["Prec"].values, df_sim["ET0"].values, w_max=w_max, ke_suelo=ke)
-            humedad_relativa = df_sim["W_superficial"] / w_max
-            df_sim["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
-            
-            # Choque hídrico de 3 días, coherente con el motor principal
-            df_sim["Prec_3d"] = df_sim["Prec"].rolling(
-                window=3,
-                min_periods=1
-            ).sum()
-            mask_ruptura_opt = (
-                (df_sim["Julian_days"] > 25)
-                & (df_sim["Julian_days"] <= 110)
-                & (df_sim["Prec_3d"] >= umbral_choque_hidrico)
-            )
-            df_sim.loc[mask_ruptura_opt, "EMERREL_RAW"] = np.maximum(
-                df_sim.loc[mask_ruptura_opt, "EMERREL_RAW"],
-                1.0
-            )
 
-            df_sim["EMERREL"] = df_sim["EMERREL_RAW"] * df_sim["Hydric_Factor"]
-            df_sim.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
-            df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
-            df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
-            
-            df_sim["Tmedia_5d"] = df_sim["Tmedia_aire"].rolling(window=5, min_periods=1).mean()
-            df_sim.loc[df_sim["Tmedia_5d"] >= 24.0, "EMERREL"] = 0.0
-            
-            df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
-
-            # Misma validación de inicio y agotamiento usados por el motor principal
-            df_sim, idx_primer_pico_opt = aplicar_filtro_primer_pico(
-                df_sim,
-                umbral=UMBRAL_PRIMER_PICO
+    for cobertura in rango_cobertura:
+        for w_max in rango_w_max:
+            df_sim, idx_pico, ke_suelo, _ = simular_emergencia_local(
+                df_meteo,
+                modelo_ann,
+                cobertura_pct=float(cobertura),
+                w_max=float(w_max),
+                umbral_termoinhibicion=float(umbral_termoinhibicion),
+                umbral_choque_hidrico=float(umbral_choque_hidrico),
+                exponente_kr=float(exponente_kr),
+                latitud=float(latitud_local),
+                calentamiento_suelo=float(calentamiento_suelo),
+                tau_decaimiento=tau_decaimiento,
+                beta_decaimiento=beta_decaimiento,
+                intensidad_decaimiento=intensidad_decaimiento,
             )
-            df_sim = aplicar_decaimiento_cohorte_weibull(
-                df_sim,
-                idx_primer_pico_opt,
-                tau_dias=tau_decaimiento,
-                beta=beta_decaimiento,
-                intensidad=intensidad_decaimiento
+            df_sync = sincronizar_intervalos_variables(
+                df_sim, campo, col_fecha, col_plm2
             )
-
-            df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
             metricas = calcular_metricas_validacion_integral(df_sync)
-            
+            fecha_pico = df_sim.loc[idx_pico, "Fecha"] if idx_pico is not None else pd.NaT
             resultados.append({
-                "W_Max (mm)": w_max,
-                "Ke_Suelo": round(ke, 2),
+                "Cobertura_Rastrojo (%)": int(cobertura),
+                "Ke_Suelo": round(float(ke_suelo), 3),
+                "W_Max (mm)": float(w_max),
+                "Exponente_Kr": float(exponente_kr),
+                "Fecha_Primer_Pico": fecha_pico,
                 "F1-Score": metricas["F1_Score_Coincidencia"],
                 "NSE (Flujos Reales)": metricas["NSE_Flujos"],
                 "KGE": metricas["KGE_Flujos"],
                 "CCC (Acumulado)": metricas["CCC_Acumulado"],
                 "R2": metricas["R2_Acumulado"],
-                "RMSE": metricas["RMSE_Acumulado"]
+                "RMSE": metricas["RMSE_Acumulado"],
             })
-            
-    df_resultados = pd.DataFrame(resultados)
-    return df_resultados.sort_values(by=["F1-Score", "NSE (Flujos Reales)"], ascending=[False, False]).reset_index(drop=True)
+
+    tabla = pd.DataFrame(resultados)
+    return tabla.sort_values(
+        by=["F1-Score", "KGE", "NSE (Flujos Reales)"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
 
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
@@ -543,9 +659,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         with st.container(border=True):
             st.markdown("#### 🌾 Manejo de Superficie")
             cobertura_pct = st.slider("Cobertura de Rastrojo en Suelo (%)", min_value=0, max_value=100, value=10, step=5)
-            x_cobertura = [0, 30, 70, 100]
-            ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.85, 0.50, 0.25, 0.10]))
-            mod_termico = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.90, 0.85, 0.80]))
+            ke_val, mod_termico = parametros_superficie(cobertura_pct)
 
             html_card = f"""
             <div style="background-color:#fff; padding:15px 20px; border-radius:10px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border:1px solid #e2e8f0; margin-top:15px;">
@@ -639,6 +753,20 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
+exponente_kr = st.sidebar.slider(
+    "Exponente Kr (secado superficial)",
+    min_value=0.0,
+    max_value=2.0,
+    value=0.0,
+    step=0.1,
+    help=(
+        "0 = evaporación ET0×Ke constante; 1 = reducción dinámica "
+        "según el agua superficial disponible."
+    ),
+)
+st.sidebar.caption(
+    f"Kr diario = (W/Wmax)^{exponente_kr:.1f}; Ke depende de cobertura."
+)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Estado de Validación")
@@ -662,11 +790,12 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
                     df_meteo_opt,
                     df_campo_opt,
                     modelo_ann,
-                    latitud_balcarce=-37.7664,
                     umbral_choque_hidrico=umbral_choque_hidrico,
+                    umbral_termoinhibicion=umbral_termoinhibicion,
+                    exponente_kr=exponente_kr,
                     tau_decaimiento=tau_decaimiento,
                     beta_decaimiento=beta_decaimiento,
-                    intensidad_decaimiento=intensidad_decaimiento_aplicada
+                    intensidad_decaimiento=intensidad_decaimiento_aplicada,
                 )
                 
             st.success("¡Barrido 2D por eventos completado!")
@@ -679,83 +808,48 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
-    df = df_meteo_raw.copy()
-    df.columns = [c.upper().strip() for c in df.columns]
-    df = df.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-    for columna_num in ["TMAX", "TMIN", "Prec"]:
-        df[columna_num] = pd.to_numeric(df[columna_num], errors='coerce')
-    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
-    df["Julian_days"] = df["Fecha"].dt.dayofyear
-
-    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
-    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
-    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
-    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
+    df, idx_primer_pico, ke_val, mod_termico = simular_emergencia_local(
+        df_meteo_raw,
+        modelo_ann,
+        cobertura_pct=cobertura_pct,
+        w_max=w_max_val,
+        umbral_termoinhibicion=umbral_termoinhibicion,
+        umbral_choque_hidrico=umbral_choque_hidrico,
+        exponente_kr=exponente_kr,
+        tau_decaimiento=tau_decaimiento,
+        beta_decaimiento=beta_decaimiento,
+        intensidad_decaimiento=intensidad_decaimiento_aplicada,
+    )
 
     df_campo, col_fecha, col_plm2 = None, None, None
     if df_campo_raw is not None:
         df_campo = df_campo_raw.copy()
-        col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
-        col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
-        df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
-        df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
-        max_plm2 = df_campo[col_plm2].max()
-        df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
+        col_fecha = "FECHA" if "FECHA" in df_campo.columns else "Fecha" if "Fecha" in df_campo.columns else df_campo.columns[0]
+        col_plm2 = "PLM2" if "PLM2" in df_campo.columns else df_campo.columns[1]
+        df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha], errors="coerce")
+        df_campo[col_plm2] = pd.to_numeric(df_campo[col_plm2], errors="coerce")
+        df_campo = (
+            df_campo.dropna(subset=[col_fecha, col_plm2])
+            .sort_values(col_fecha)
+            .reset_index(drop=True)
+        )
+        df_campo[col_plm2] = df_campo[col_plm2].clip(lower=0.0)
+        max_plm2 = float(df_campo[col_plm2].max())
+        df_campo["Campo_Normalizado"] = (
+            df_campo[col_plm2] / max_plm2 if max_plm2 > 0.0 else 0.0
+        )
 
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-    emerrel_raw, _ = modelo_ann.predict(X)
-    df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
-
-    # Bloqueo de latencia temprana corregido (Primeros 25 días)
-    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
-
-    # Choque Hídrico de Ruptura Temprana (45 mm por defecto; fuerza mínima 1.0)
-    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    mask_ruptura = (df["Julian_days"] > 25) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
-
-    # Balance Hídrico Superficial (Balcarce: Lat=-37.7664)
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.7664)
-    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
-    humedad_relativa = df["W_superficial"] / w_max_val
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
-    df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
-
-    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
-    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
-    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
-
-    df["Tmedia"] = df["Tmedia_aire"]
-    df["Tmedia_5d"] = df["Tmedia"].rolling(window=5, min_periods=1).mean()
-    df.loc[df["Tmedia_5d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
-
-    # BALCARCE: Techo 0-1
-    df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
-
-    # Validación del primer pico
-    # La campaña comienza en el primer valor estrictamente superior a 0.20.
-    df, idx_primer_pico = aplicar_filtro_primer_pico(
-        df,
-        umbral=UMBRAL_PRIMER_PICO
+    df["DG"] = df["Tmedia"].apply(
+        lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica)
     )
 
-    # Agotamiento progresivo de la cohorte germinable después del primer pico.
-    # Esta capa corrige la repetición de picos tardíos que el ANN puede generar
-    # cuando vuelven a aparecer condiciones hídricas favorables.
-    df = aplicar_decaimiento_cohorte_weibull(
-        df,
-        idx_primer_pico,
-        tau_dias=tau_decaimiento,
-        beta=beta_decaimiento,
-        intensidad=intensidad_decaimiento_aplicada
-    )
-
-    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
-    fecha_hoy = pd.Timestamp.now().normalize()
-    if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
-    
+    fecha_hoy_sistema = pd.Timestamp.now().normalize()
+    fecha_hoy = min(max(fecha_hoy_sistema, df["Fecha"].min()), df["Fecha"].max())
+    candidatos_hoy = df.index[df["Fecha"] <= fecha_hoy].tolist()
+    idx_hoy = candidatos_hoy[-1] if candidatos_hoy else 0
+    fecha_hoy = df.loc[idx_hoy, "Fecha"]
     indices_pulso = [idx_primer_pico] if idx_primer_pico is not None else []
+
     dga_hoy, dga_7dias, dias_stress = 0.0, 0.0, 0
     fecha_inicio_ventana, fecha_control, fecha_limite = None, None, None
     msg_estado = "Esperando pico de emergencia..."
@@ -764,25 +858,34 @@ if df_meteo_raw is not None and modelo_ann is not None:
         fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
-        
-        # Fecha de Control
+
         df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
-        if not df_control.empty: fecha_control = df_control.iloc[0]["Fecha"]
-        
-        # Fecha Límite (800 °Cd)
+        if not df_control.empty:
+            fecha_control = df_control.iloc[0]["Fecha"]
+
         df_limite = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_critico]
-        if not df_limite.empty: fecha_limite = df_limite.iloc[0]["Fecha"]
-        
-        dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
-        idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
-        dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum() if idx_hoy + 8 <= len(df) else dga_hoy
+        if not df_limite.empty:
+            fecha_limite = df_limite.iloc[0]["Fecha"]
+
+        dga_hoy = float(
+            df.loc[
+                (df["Fecha"] >= fecha_inicio_ventana) & (df.index <= idx_hoy),
+                "DG",
+            ].sum()
+        )
+        idx_pronostico = min(idx_hoy + 7, len(df) - 1)
+        dga_7dias = float(
+            df.loc[
+                (df["Fecha"] >= fecha_inicio_ventana)
+                & (df.index <= idx_pronostico),
+                "DG",
+            ].sum()
+        )
+        dias_stress = int((df_desde_pico["Tmedia"] > t_opt_max).sum())
         msg_estado = (
             f"Pico validado > {UMBRAL_PRIMER_PICO:.2f} "
             f"el {fecha_inicio_ventana.strftime('%d/%m')}"
         )
-        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
-
-    # Inicialización de métricas robustas
     pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, r2_acum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     exactitud_global, f1_score_coincidencia = 0.0, 0.0
     hits_val, misses_val, falsos_pos_val, correctos_neg_val = 0, 0, 0, 0
@@ -1467,7 +1570,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }).to_excel(writer, sheet_name='Validacion_Estadistica', index=False)
         pd.DataFrame({
             'Configuracion': [
-                'T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke',
+                'T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Exponente_Kr',
                 'Mod_Termico', 'Umbral_Termoinhibicion',
                 'Umbral_Choque_Hidrico_3d',
                 'Umbral_Primer_Pico',
@@ -1485,7 +1588,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 'NSE_Decaimiento_2026'
             ],
             'Valor': [
-                t_base_val, t_opt_max, t_critica, w_max_val, ke_val,
+                t_base_val, t_opt_max, t_critica, w_max_val, ke_val, exponente_kr,
                 mod_termico, umbral_termoinhibicion,
                 umbral_choque_hidrico,
                 UMBRAL_PRIMER_PICO,
