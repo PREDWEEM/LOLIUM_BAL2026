@@ -6,7 +6,7 @@
 # - ENTRADAS ANN CORREGIDAS: JD, TMAX aire, TMIN aire y precipitación.
 # - ADAPTACIÓN BALCARCE: Coordenadas precisas actualizadas a LAT=-37.7664 y LON=-58.2999.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 45 días del año.
+# - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 25 días del año.
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - CHOQUE HÍDRICO: Umbral acumulado de 3 días fijado en 45 mm.
 # - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.20.
@@ -463,7 +463,7 @@ def optimizar_parametros_hidricos_2d(
         for ke in rango_ke:
             df_sim = df.copy()
             df_sim["EMERREL_RAW"] = np.maximum(emerrel_raw, 0.0)
-            df_sim.loc[df_sim["Julian_days"] <= 45, "EMERREL_RAW"] = 0.0
+            df_sim.loc[df_sim["Julian_days"] <= 25, "EMERREL_RAW"] = 0.0
             
             df_sim["W_superficial"] = balance_hidrico_superficial(df_sim["Prec"].values, df_sim["ET0"].values, w_max=w_max, ke_suelo=ke)
             humedad_relativa = df_sim["W_superficial"] / w_max
@@ -475,7 +475,7 @@ def optimizar_parametros_hidricos_2d(
                 min_periods=1
             ).sum()
             mask_ruptura_opt = (
-                (df_sim["Julian_days"] > 45)
+                (df_sim["Julian_days"] > 25)
                 & (df_sim["Julian_days"] <= 110)
                 & (df_sim["Prec_3d"] >= umbral_choque_hidrico)
             )
@@ -707,12 +707,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # Bloqueo de latencia temprana corregido (Primeros 45 días)
-    df.loc[df["Julian_days"] <= 45, "EMERREL"] = 0.0
+    # Bloqueo de latencia temprana corregido (Primeros 25 días)
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
 
     # Choque Hídrico de Ruptura Temprana (45 mm por defecto; fuerza mínima 1.0)
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    mask_ruptura = (df["Julian_days"] > 45) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    mask_ruptura = (df["Julian_days"] > 25) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # Balance Hídrico Superficial (Balcarce: Lat=-37.7664)
