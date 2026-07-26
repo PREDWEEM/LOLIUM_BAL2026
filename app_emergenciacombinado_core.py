@@ -9,7 +9,7 @@
 # - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 45 días del año.
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - CHOQUE HÍDRICO: Umbral acumulado de 3 días fijado en 45 mm.
-# - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
+# - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.20.
 # - VALIDACIÓN ANN REAL: Intensidad 0.95 validada con los pesos productivos y parámetros operativos por defecto.
 # - INTERVALOS CORREGIDOS: Incluye el primer flujo observado y normaliza hasta el último muestreo.
 # - ENTRADAS XLSX ROBUSTAS: Conversión explícita de TMAX, TMIN y precipitación a valores numéricos.
@@ -70,7 +70,7 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-UMBRAL_PRIMER_PICO = 0.70
+UMBRAL_PRIMER_PICO = 0.20
 
 # Decaimiento de la cohorte emergente, ajustado sobre los flujos relativos
 # observados de Balcarce 2025 y 2026, normalizados respecto del primer pico.
@@ -734,7 +734,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
 
     # Validación del primer pico
-    # La campaña comienza en el primer valor estrictamente superior a 0.70.
+    # La campaña comienza en el primer valor estrictamente superior a 0.20.
     df, idx_primer_pico = aplicar_filtro_primer_pico(
         df,
         umbral=UMBRAL_PRIMER_PICO
