@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Actualizador meteorológico robusto PREDWEEM — Balcarce.
-
-Reutiliza el lector SIGA del actualizador histórico y añade:
-- ECMWF IFS histórico provisional para cada fecha vencida sin SIGA;
-- ECMWF IFS ENS emparejado por miembro, sin completar nulos con cero;
-- P50 coherente para TMAX, TMIN, TMEDIA y Prec;
-- validación diaria y escritura atómica.
-"""
+"""Actualizador meteorológico robusto PREDWEEM — Balcarce."""
 from __future__ import annotations
 
 import json
@@ -14,7 +7,6 @@ import math
 import re
 import sys
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -46,6 +38,45 @@ def columnas(df: pd.DataFrame) -> pd.DataFrame:
         if c not in salida.columns:
             salida[c] = np.nan
     return salida[COLUMNAS]
+
+
+def resumen(fechas: list[str], limite: int = 20) -> str:
+    texto = ", ".join(fechas[:limite])
+    return texto + (f", ... ({len(fechas)} fechas)" if len(fechas) > limite else "")
+
+
+def depurar_observaciones(obs: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """Deriva solo TMEDIA; nunca rellena precipitación faltante con cero."""
+    s = columnas(obs)
+    s["Fecha_dt"] = pd.to_datetime(s["Fecha"], errors="coerce").dt.normalize()
+    for c in ("TMAX", "TMIN", "TMEDIA", "Prec"):
+        s[c] = pd.to_numeric(s[c], errors="coerce")
+
+    derivar = (
+        s["Fecha_dt"].notna() & s["TMEDIA"].isna()
+        & s["TMAX"].notna() & s["TMIN"].notna()
+        & (s["TMAX"] >= s["TMIN"])
+    )
+    fechas_derivadas = s.loc[derivar, "Fecha_dt"].dt.strftime("%Y-%m-%d").tolist()
+    s.loc[derivar, "TMEDIA"] = (s.loc[derivar, "TMAX"] + s.loc[derivar, "TMIN"]) / 2.0
+    s.loc[derivar, "CalidadDato"] = "Observado_estacion_TMEDIA_derivada"
+
+    invalidas = (
+        s["Fecha_dt"].isna()
+        | s[["TMAX", "TMIN", "TMEDIA", "Prec"]].isna().any(axis=1)
+        | (s["TMAX"] < s["TMIN"]) | (s["Prec"] < 0)
+    )
+    descartadas = s.loc[invalidas & s["Fecha_dt"].notna(), "Fecha_dt"].dt.strftime("%Y-%m-%d").tolist()
+    if fechas_derivadas:
+        print("ℹ️ TMEDIA SIGA derivada de Tmax/Tmin en: " + resumen(fechas_derivadas))
+    if descartadas:
+        print("⚠️ Filas SIGA inválidas pasan a puente ECMWF: " + resumen(descartadas))
+
+    s = s.loc[~invalidas].copy()
+    s["GD_Tb2"] = np.maximum(0.0, s["TMEDIA"] - base.TBASE)
+    s["Fecha"] = s["Fecha_dt"].dt.strftime("%Y-%m-%d")
+    s = s.drop(columns=["Fecha_dt"]).drop_duplicates("Fecha", keep="last").sort_values("Fecha")
+    return columnas(s.reset_index(drop=True)), fechas_derivadas, descartadas
 
 
 def fechas_faltantes(obs: pd.DataFrame, inicio: date, fin: date) -> list[date]:
@@ -189,20 +220,37 @@ def huecos(df: pd.DataFrame, inicio: date, fin: date) -> list[str]:
 
 
 def validar(df: pd.DataFrame, fin: date) -> None:
-    f = pd.to_datetime(df["Fecha"], errors="coerce"); c = df[["TMAX","TMIN","TMEDIA","Prec"]].apply(pd.to_numeric, errors="coerce")
-    if df.empty or f.isna().any() or f.duplicated().any() or c.isna().any().any() or (c["TMAX"]<c["TMIN"]).any() or (c["Prec"]<0).any() or huecos(df, base.CAMPANIA_START, fin):
-        raise ValueError("La serie meteorológica final no es válida y continua.")
+    if df.empty:
+        raise ValueError("La serie meteorológica final está vacía.")
+    fechas = pd.to_datetime(df["Fecha"], errors="coerce")
+    if fechas.isna().any():
+        raise ValueError("Hay fechas inválidas en la serie final.")
+    if fechas.duplicated().any():
+        raise ValueError("Hay fechas duplicadas: " + resumen(fechas[fechas.duplicated()].dt.strftime("%Y-%m-%d").tolist()))
+    c = df[["TMAX","TMIN","TMEDIA","Prec"]].apply(pd.to_numeric, errors="coerce")
+    nulas = c.isna().any(axis=1)
+    if nulas.any():
+        raise ValueError("Hay datos meteorológicos nulos en: " + resumen(fechas[nulas].dt.strftime("%Y-%m-%d").tolist()))
+    if (c["TMAX"] < c["TMIN"]).any():
+        raise ValueError("Hay TMAX menor que TMIN.")
+    if (c["Prec"] < 0).any():
+        raise ValueError("Hay precipitación negativa.")
+    faltantes = huecos(df, base.CAMPANIA_START, fin)
+    if faltantes:
+        raise ValueError("La serie final no es continua; faltan: " + resumen(faltantes))
     pron = df["TipoDato"].astype(str).eq("Pronostico")
     for a,b in (("TMAX","TMAX_P50"),("TMIN","TMIN_P50"),("TMEDIA","TMEDIA_P50"),("Prec","Prec_P50")):
-        if not np.allclose(pd.to_numeric(df.loc[pron,a]), pd.to_numeric(df.loc[pron,b]), atol=1e-9):
+        if not np.allclose(pd.to_numeric(df.loc[pron,a]), pd.to_numeric(df.loc[pron,b]), atol=1e-9, equal_nan=False):
             raise ValueError(f"{a} no coincide con {b}.")
-    if (pd.to_numeric(df.loc[pron,"N_miembros"], errors="coerce") < MIN_MIEMBROS).any():
+    miembros = pd.to_numeric(df.loc[pron,"N_miembros"], errors="coerce")
+    if miembros.isna().any() or (miembros < MIN_MIEMBROS).any():
         raise ValueError("El pronóstico tiene menos de 30 miembros válidos.")
 
 
 def ejecutar() -> pd.DataFrame:
     hoy = base.hoy_argentina(); ayer = hoy - timedelta(days=1)
     obs, estado_siga = base.obtener_siga_dataframe(base.CAMPANIA_START, ayer)
+    obs, tmedia_derivada, obs_descartadas = depurar_observaciones(obs)
     faltantes = fechas_faltantes(obs, base.CAMPANIA_START, ayer); rs = rangos(faltantes)
     bloques = [cargar_provisional(i,f) for i,f in rs]
     prov = columnas(pd.concat(bloques, ignore_index=True)) if bloques else pd.DataFrame(columns=COLUMNAS)
@@ -213,7 +261,7 @@ def ejecutar() -> pd.DataFrame:
     fin = pd.to_datetime(pron["Fecha"]).max().date(); todo = todo.loc[(todo["Fecha_dt"].dt.date >= base.CAMPANIA_START) & (todo["Fecha_dt"].dt.date <= fin)]
     todo["Fecha"] = todo["Fecha_dt"].dt.strftime("%Y-%m-%d"); todo = columnas(todo.drop(columns=["Fecha_dt","_p"])).reset_index(drop=True)
     validar(todo, fin); base.escribir_csv_atomico(todo, base.ARCHIVO_MAESTRO_DEFAULT)
-    estado = {"ejecucion_utc": base.fecha_utc_iso(), "sitio":"Balcarce", "latitud":base.LATITUD, "longitud":base.LONGITUD, "estacion_siga":"A872824", "estado_siga":estado_siga, "ultima_observacion_siga":str(obs["Fecha"].max()), "huecos_siga":[x.isoformat() for x in faltantes], "rangos_provisionales":[{"inicio":i.isoformat(),"fin":f.isoformat()} for i,f in rs], "fuente_provisional":"ECMWF_IFS_HISTORICO" if len(prov) else None, "filas_provisionales":len(prov), "fuente_pronostico":"ECMWF_IFS_ENS_025", "estadistico_operativo":"P50", "inicio_pronostico":str(pron["Fecha"].min()), "fin_pronostico":str(pron["Fecha"].max()), "miembros_validos_min":int(pd.to_numeric(pron["N_miembros"]).min()), "huecos_finales":huecos(todo,base.CAMPANIA_START,fin)}
+    estado = {"ejecucion_utc": base.fecha_utc_iso(), "sitio":"Balcarce", "latitud":base.LATITUD, "longitud":base.LONGITUD, "estacion_siga":"A872824", "estado_siga":estado_siga, "ultima_observacion_siga":str(obs["Fecha"].max()), "tmedia_siga_derivada":tmedia_derivada, "observaciones_siga_descartadas":obs_descartadas, "huecos_siga":[x.isoformat() for x in faltantes], "rangos_provisionales":[{"inicio":i.isoformat(),"fin":f.isoformat()} for i,f in rs], "fuente_provisional":"ECMWF_IFS_HISTORICO" if len(prov) else None, "filas_provisionales":len(prov), "fuente_pronostico":"ECMWF_IFS_ENS_025", "estadistico_operativo":"P50", "inicio_pronostico":str(pron["Fecha"].min()), "fin_pronostico":str(pron["Fecha"].max()), "miembros_validos_min":int(pd.to_numeric(pron["N_miembros"]).min()), "huecos_finales":huecos(todo,base.CAMPANIA_START,fin)}
     base.ARCHIVO_ESTADO.parent.mkdir(parents=True, exist_ok=True); base.ARCHIVO_ESTADO.write_text(json.dumps(estado,ensure_ascii=False,indent=2),encoding="utf-8")
     print(f"✅ SIGA={len(obs)}; provisionales={len(prov)}; pronóstico={len(pron)}")
     return todo
