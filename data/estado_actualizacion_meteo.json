@@ -1,13 +1,13 @@
 {
-  "ejecucion_utc": "2026-07-26T19:42:01+00:00",
+  "ejecucion_utc": "2026-07-27T13:24:04+00:00",
   "sitio": "Balcarce",
   "latitud": -37.7664,
   "longitud": -58.2999,
   "estado_siga": "SIGA_remoto",
   "ultima_observacion_siga": "2026-07-21",
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
-  "inicio_pronostico": "2026-07-26",
-  "fin_pronostico": "2026-08-01",
+  "inicio_pronostico": "2026-07-27",
+  "fin_pronostico": "2026-08-02",
   "huecos_observados": [
     "2026-04-23",
     "2026-04-24",
@@ -18,6 +18,7 @@
     "2026-07-22",
     "2026-07-23",
     "2026-07-24",
-    "2026-07-25"
+    "2026-07-25",
+    "2026-07-26"
   ]
 }
