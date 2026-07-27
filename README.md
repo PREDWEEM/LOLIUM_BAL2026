@@ -36,7 +36,13 @@ El procedimiento completo se encuentra en [PRIVATE_REPOSITORY.md](PRIVATE_REPOSI
 
 ## Automatización meteorológica
 
-El workflow **Actualizar SIGA Balcarce y ECMWF ENS** descarga y consolida observaciones de SIGA–INTA y pronósticos ECMWF ENS. Conserva permisos de escritura para actualizar `meteo_daily.csv` y los archivos de `data/`.
+El workflow **Actualizar SIGA Balcarce y ECMWF ENS** conserva SIGA–INTA, estación `A872824`, como fuente observada prioritaria. Cada fecha vencida sin una observación SIGA válida se cubre temporalmente con ECMWF IFS histórico y queda identificada como `Provisional_hasta_reemplazo_SIGA`. Cuando SIGA publica posteriormente esa fecha, la observación reemplaza automáticamente el valor provisional.
+
+Desde la fecha actual se usa ECMWF IFS ENS 0,25°. Las variables operativas `TMAX`, `TMIN`, `TMEDIA` y `Prec` corresponden al percentil 50 del ensamble. Las medias se conservan en columnas separadas para auditoría.
+
+La precipitación ausente no se transforma en cero. Temperatura y precipitación se emparejan por identificador de miembro; cada miembro debe aportar 24 valores horarios válidos por día. El proceso exige al menos 30 miembros válidos y el 80 % de los miembros emparejados disponibles.
+
+Antes de guardar `meteo_daily.csv`, GitHub Actions comprueba continuidad diaria, ausencia de nulos, coherencia física, prioridad de SIGA, correspondencia de las filas provisionales con los huecos observados y uso consistente de P50.
 
 El workflow **Verificar despliegue privado** valida el checkout, pero ignora los commits que solo actualizan `meteo_daily.csv` o `data/**`, reduciendo el consumo de minutos de GitHub Actions.
 
