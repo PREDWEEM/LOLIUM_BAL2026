@@ -3,7 +3,8 @@
 
 El motor científico se conserva en ``app_emergenciacombinado_core.py``. Antes
 de ejecutarlo, este módulo sustituye únicamente dependencias públicas internas
-por recursos locales y valida los activos obligatorios del modelo.
+por recursos locales, aplica la extinción fisiológica auditada de la cohorte y
+valida los activos obligatorios del modelo.
 """
 
 from __future__ import annotations
@@ -12,6 +13,9 @@ import re
 import sys
 from pathlib import Path
 
+
+COHORT_EXHAUSTION_DAYS = 110
+COHORT_REMAINING_THRESHOLD = 0.005
 
 REQUIRED_PRIVATE_ASSETS = (
     "IW.npy",
@@ -105,6 +109,37 @@ def build_private_core_source(core_path: Path) -> str:
         "carga local del logotipo",
     )
 
+    source = _replace_once(
+        source,
+        r'''    factor_base = np\.exp\(-np\.power\(dias_desde_pico / tau_dias, beta\)\)\n'''
+        r'''    factor_base = np\.where\(pd\.to_datetime\(df\["Fecha"\]\) < fecha_pico, 1\.0, factor_base\)\n'''
+        r'''    factor_aplicado = 1\.0 - intensidad \* \(1\.0 - factor_base\)\n\n'''
+        r'''    df\["Dias_Desde_Primer_Pico"\] = dias_desde_pico\n'''
+        r'''    df\["Factor_Decaimiento_Base"\] = factor_base\n'''
+        r'''    df\["Factor_Decaimiento"\] = factor_aplicado''',
+        f'''    factor_base = np.exp(-np.power(dias_desde_pico / tau_dias, beta))
+    factor_base = np.where(pd.to_datetime(df["Fecha"]) < fecha_pico, 1.0, factor_base)
+    factor_aplicado = 1.0 - intensidad * (1.0 - factor_base)
+
+    # Extinción fisiológica específica de Balcarce. Una vez transcurridos
+    # {COHORT_EXHAUSTION_DAYS} días desde el primer pico y cuando el remanente
+    # Weibull es <= {COHORT_REMAINING_THRESHOLD:.3f}, la cohorte se considera
+    # agotada y no puede ser reactivada por lluvias tardías.
+    cohorte_agotada = (
+        (dias_desde_pico >= {float(COHORT_EXHAUSTION_DAYS):.1f})
+        & (factor_base <= {COHORT_REMAINING_THRESHOLD:.3f})
+    )
+    factor_aplicado = np.where(cohorte_agotada, 0.0, factor_aplicado)
+
+    df["Dias_Desde_Primer_Pico"] = dias_desde_pico
+    df["Factor_Decaimiento_Base"] = factor_base
+    df["Cohorte_Agotada"] = cohorte_agotada
+    df["Criterio_Agotamiento_Dias"] = {COHORT_EXHAUSTION_DAYS}
+    df["Criterio_Remanente_Maximo"] = {COHORT_REMAINING_THRESHOLD:.3f}
+    df["Factor_Decaimiento"] = factor_aplicado''',
+        "extinción fisiológica de la cohorte",
+    )
+
     forbidden_reference = "raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026"
     if forbidden_reference in source:
         raise PrivateRuntimeError(
@@ -115,7 +150,7 @@ def build_private_core_source(core_path: Path) -> str:
 
 
 def verify_private_checkout(base: Path) -> None:
-    """Comprueba recursos y sintaxis sin ejecutar Streamlit ni el modelo."""
+    """Comprueba recursos, adaptación fisiológica y sintaxis sin ejecutar Streamlit."""
     missing = [name for name in REQUIRED_PRIVATE_ASSETS if not (base / name).is_file()]
     if missing:
         raise PrivateRuntimeError(
@@ -129,6 +164,17 @@ def verify_private_checkout(base: Path) -> None:
         )
 
     private_source = build_private_core_source(core_path)
+    required_audit_fields = (
+        'df["Cohorte_Agotada"]',
+        'df["Criterio_Agotamiento_Dias"]',
+        'df["Criterio_Remanente_Maximo"]',
+    )
+    missing_fields = [field for field in required_audit_fields if field not in private_source]
+    if missing_fields:
+        raise PrivateRuntimeError(
+            "La adaptación de agotamiento quedó incompleta: "
+            + ", ".join(missing_fields)
+        )
     compile(private_source, str(core_path), "exec")
 
 
@@ -140,7 +186,11 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    print("OK: Balcarce está preparado para despliegue privado.")
+    print(
+        "OK: Balcarce está preparado para despliegue privado con agotamiento "
+        f"de cohorte a {COHORT_EXHAUSTION_DAYS} días y remanente máximo "
+        f"{COHORT_REMAINING_THRESHOLD:.3f}."
+    )
     return 0
 
 
