@@ -236,6 +236,102 @@ def build_private_core_source(core_path: Path) -> str:
         "extensión del eje X hasta la última fecha disponible",
     )
 
+    source = _replace_once(
+        source,
+        r'''            if fecha_inicio_ventana:\n                st\.success\(''',
+        '''            if bool(mascara_pronostico_graf.any()):
+                df_pronostico_graf = df.loc[
+                    mascara_pronostico_graf,
+                    ["Fecha", "EMERREL", "EMERREL_LOG"],
+                ].copy()
+                df_pronostico_graf["Fecha"] = pd.to_datetime(
+                    df_pronostico_graf["Fecha"], errors="coerce"
+                )
+                df_pronostico_graf = (
+                    df_pronostico_graf.dropna(subset=["Fecha"])
+                    .sort_values("Fecha")
+                    .reset_index(drop=True)
+                )
+
+                if not df_pronostico_graf.empty:
+                    inicio_zoom = pd.Timestamp(df_pronostico_graf["Fecha"].min())
+                    fin_zoom = pd.Timestamp(df_pronostico_graf["Fecha"].max())
+                    st.markdown(
+                        "##### 🔭 Pronóstico de emergencia — horizonte completo"
+                    )
+                    st.caption(
+                        f"Horizonte meteorológico vigente: "
+                        f"{len(df_pronostico_graf)} días, "
+                        f"del {inicio_zoom.strftime('%d-%m-%Y')} al "
+                        f"{fin_zoom.strftime('%d-%m-%Y')}. "
+                        "No se agregan ni extrapolan días."
+                    )
+
+                    fig_pronostico = go.Figure()
+                    fig_pronostico.add_trace(
+                        go.Scatter(
+                            x=df_pronostico_graf["Fecha"],
+                            y=df_pronostico_graf["EMERREL"],
+                            mode="lines+markers+text",
+                            name="EMERREL pronosticada",
+                            text=[
+                                f"{valor:.3f}"
+                                for valor in df_pronostico_graf["EMERREL"]
+                            ],
+                            textposition="top center",
+                            cliponaxis=False,
+                            line=dict(color="#2563EB", width=3.0),
+                            marker=dict(size=9, color="#2563EB"),
+                            hovertemplate=(
+                                "<b>%{x|%d-%m-%Y}</b><br>"
+                                "EMERREL: %{y:.4f}<extra></extra>"
+                            ),
+                        )
+                    )
+                    fig_pronostico.update_layout(
+                        title=dict(
+                            text="Detalle diario del pronóstico de emergencia",
+                            x=0.0,
+                            xanchor="left",
+                        ),
+                        xaxis=dict(
+                            title="Fecha",
+                            tickmode="array",
+                            tickvals=df_pronostico_graf["Fecha"],
+                            ticktext=df_pronostico_graf["Fecha"].dt.strftime(
+                                "%d-%m"
+                            ),
+                            range=[
+                                inicio_zoom - timedelta(hours=12),
+                                fin_zoom + timedelta(hours=12),
+                            ],
+                            showgrid=False,
+                        ),
+                        yaxis=dict(
+                            title="EMERREL diaria",
+                            rangemode="tozero",
+                            showgrid=True,
+                            gridcolor="rgba(148, 163, 184, 0.25)",
+                        ),
+                        height=360,
+                        margin=dict(l=65, r=25, t=55, b=65),
+                        hovermode="x unified",
+                        showlegend=False,
+                        paper_bgcolor="#FFFFFF",
+                        plot_bgcolor="#FFFFFF",
+                    )
+                    st.plotly_chart(
+                        fig_pronostico,
+                        width="stretch",
+                        key="balcarce_pronostico_emergencia_horizonte_completo",
+                        config={"displaylogo": False, "responsive": True},
+                    )
+
+            if fecha_inicio_ventana:
+                st.success(''',
+        "panel diario del horizonte completo de pronóstico",
+    )
+
     forbidden_reference = "raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026"
     if forbidden_reference in source:
         raise PrivateRuntimeError(
@@ -267,6 +363,8 @@ def verify_private_checkout(base: Path) -> None:
         'name="Pronóstico de emergencia disponible"',
         'text=(\n                        "Fin del pronóstico disponible<br>"',
         'pd.Timestamp(df["Fecha"].max()) + timedelta(days=1)',
+        'Pronóstico de emergencia — horizonte completo',
+        'key="balcarce_pronostico_emergencia_horizonte_completo"',
     )
     missing_fields = [field for field in required_audit_fields if field not in private_source]
     if missing_fields:
@@ -288,8 +386,8 @@ def main() -> int:
     print(
         "OK: Balcarce está preparado para despliegue privado con agotamiento "
         f"de cohorte a {COHORT_EXHAUSTION_DAYS} días, remanente máximo "
-        f"{COHORT_REMAINING_THRESHOLD:.3f} y horizonte de pronóstico visible "
-        "hasta la última fecha meteorológica disponible."
+        f"{COHORT_REMAINING_THRESHOLD:.3f}, horizonte anual visible y panel "
+        "diario independiente para todo el pronóstico disponible."
     )
     return 0
 
