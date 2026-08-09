@@ -1,5 +1,5 @@
 {
-  "ejecucion_utc": "2026-08-08T19:06:43+00:00",
+  "ejecucion_utc": "2026-08-09T10:59:38+00:00",
   "sitio": "Balcarce",
   "latitud": -37.7664,
   "longitud": -58.2999,
@@ -21,7 +21,8 @@
     "2026-08-04",
     "2026-08-05",
     "2026-08-06",
-    "2026-08-07"
+    "2026-08-07",
+    "2026-08-08"
   ],
   "rangos_provisionales": [
     {
@@ -34,15 +35,15 @@
     },
     {
       "inicio": "2026-08-04",
-      "fin": "2026-08-07"
+      "fin": "2026-08-08"
     }
   ],
   "fuente_provisional": "ECMWF_IFS_HISTORICO",
-  "filas_provisionales": 10,
+  "filas_provisionales": 11,
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "estadistico_operativo": "P50",
-  "inicio_pronostico": "2026-08-08",
-  "fin_pronostico": "2026-08-14",
+  "inicio_pronostico": "2026-08-09",
+  "fin_pronostico": "2026-08-15",
   "miembros_validos_min": 51,
   "huecos_finales": []
 }
