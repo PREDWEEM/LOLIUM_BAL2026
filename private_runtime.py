@@ -3,8 +3,9 @@
 
 El motor científico se conserva en ``app_emergenciacombinado_core.py``. Antes
 de ejecutarlo, este módulo sustituye únicamente dependencias públicas internas
-por recursos locales, aplica la extinción fisiológica auditada de la cohorte y
-valida los activos obligatorios del modelo.
+por recursos locales, aplica la extinción fisiológica auditada de la cohorte,
+mejora la visualización del horizonte meteorológico disponible y valida los
+activos obligatorios del modelo.
 """
 
 from __future__ import annotations
@@ -140,6 +141,101 @@ def build_private_core_source(core_path: Path) -> str:
         "extinción fisiológica de la cohorte",
     )
 
+    source = _replace_once(
+        source,
+        r'''        with col_main:\n            fig_emer = go\.Figure\(\)\n''',
+        '''        with col_main:
+            fig_emer = go.Figure()
+
+            # Delimita explícitamente el horizonte meteorológico que ya existe
+            # en meteo_daily.csv. No agrega días ni extrapola el pronóstico.
+            mascara_pronostico_graf = pd.Series(False, index=df.index)
+            if "TIPODATO" in df.columns:
+                mascara_pronostico_graf = (
+                    df["TIPODATO"].astype(str).str.lower().eq("pronostico")
+                )
+            if not bool(mascara_pronostico_graf.any()):
+                hoy_graf = pd.Timestamp.now().normalize()
+                mascara_pronostico_graf = pd.to_datetime(df["Fecha"]) >= hoy_graf
+
+            fecha_inicio_pronostico_graf = None
+            fecha_fin_pronostico_graf = None
+            if bool(mascara_pronostico_graf.any()):
+                fecha_inicio_pronostico_graf = pd.Timestamp(
+                    df.loc[mascara_pronostico_graf, "Fecha"].min()
+                )
+                fecha_fin_pronostico_graf = pd.Timestamp(
+                    df.loc[mascara_pronostico_graf, "Fecha"].max()
+                )
+                fig_emer.add_vrect(
+                    x0=fecha_inicio_pronostico_graf,
+                    x1=fecha_fin_pronostico_graf + timedelta(days=1),
+                    fillcolor="rgba(37, 99, 235, 0.055)",
+                    layer="below",
+                    line_width=0,
+                )
+                fig_emer.add_annotation(
+                    x=fecha_fin_pronostico_graf,
+                    xref="x",
+                    y=0.985,
+                    yref="paper",
+                    text=(
+                        "Fin del pronóstico disponible<br>"
+                        + fecha_fin_pronostico_graf.strftime("%d-%m-%Y")
+                    ),
+                    showarrow=False,
+                    xanchor="right",
+                    yanchor="top",
+                    bgcolor="rgba(239,246,255,0.96)",
+                    bordercolor="rgba(37,99,235,0.35)",
+                    borderwidth=1,
+                    borderpad=4,
+                    font=dict(size=11, color="#1E3A8A"),
+                )
+''',
+        "delimitación visual del horizonte de pronóstico",
+    )
+
+    source = _replace_once(
+        source,
+        r'''            # Serie observada\.\n''',
+        '''            # Tramo futuro superpuesto para distinguir visualmente el
+            # pronóstico de la parte ya observada/provisional de la campaña.
+            if bool(mascara_pronostico_graf.any()):
+                fig_emer.add_trace(
+                    go.Scatter(
+                        x=df.loc[mascara_pronostico_graf, "Fecha"],
+                        y=df.loc[mascara_pronostico_graf, "EMERREL_LOG"],
+                        mode="lines+markers",
+                        name="Pronóstico de emergencia disponible",
+                        line=dict(color="#2563EB", width=3.0, dash="dash"),
+                        marker=dict(size=5, color="#2563EB"),
+                        hovertemplate=(
+                            "<b>%{x|%d-%m-%Y}</b><br>"
+                            "Pronóstico: %{y:.3f}<extra></extra>"
+                        ),
+                    )
+                )
+
+            # Serie observada.
+''',
+        "tramo visual del pronóstico de emergencia",
+    )
+
+    source = _replace_once(
+        source,
+        r'''            fig_emer\.update_xaxes\(\n                rangeslider_visible=False,\n                fixedrange=False,\n            \)''',
+        '''            fig_emer.update_xaxes(
+                range=[
+                    pd.Timestamp(df["Fecha"].min()),
+                    pd.Timestamp(df["Fecha"].max()) + timedelta(days=1),
+                ],
+                rangeslider_visible=False,
+                fixedrange=False,
+            )''',
+        "extensión del eje X hasta la última fecha disponible",
+    )
+
     forbidden_reference = "raw.githubusercontent.com/PREDWEEM/LOLIUM_BAL2026"
     if forbidden_reference in source:
         raise PrivateRuntimeError(
@@ -150,7 +246,7 @@ def build_private_core_source(core_path: Path) -> str:
 
 
 def verify_private_checkout(base: Path) -> None:
-    """Comprueba recursos, adaptación fisiológica y sintaxis sin ejecutar Streamlit."""
+    """Comprueba recursos, adaptación fisiológica, horizonte visual y sintaxis."""
     missing = [name for name in REQUIRED_PRIVATE_ASSETS if not (base / name).is_file()]
     if missing:
         raise PrivateRuntimeError(
@@ -168,11 +264,14 @@ def verify_private_checkout(base: Path) -> None:
         'df["Cohorte_Agotada"]',
         'df["Criterio_Agotamiento_Dias"]',
         'df["Criterio_Remanente_Maximo"]',
+        'name="Pronóstico de emergencia disponible"',
+        'text=(\n                        "Fin del pronóstico disponible<br>"',
+        'pd.Timestamp(df["Fecha"].max()) + timedelta(days=1)',
     )
     missing_fields = [field for field in required_audit_fields if field not in private_source]
     if missing_fields:
         raise PrivateRuntimeError(
-            "La adaptación de agotamiento quedó incompleta: "
+            "La adaptación privada quedó incompleta: "
             + ", ".join(missing_fields)
         )
     compile(private_source, str(core_path), "exec")
@@ -188,8 +287,9 @@ def main() -> int:
 
     print(
         "OK: Balcarce está preparado para despliegue privado con agotamiento "
-        f"de cohorte a {COHORT_EXHAUSTION_DAYS} días y remanente máximo "
-        f"{COHORT_REMAINING_THRESHOLD:.3f}."
+        f"de cohorte a {COHORT_EXHAUSTION_DAYS} días, remanente máximo "
+        f"{COHORT_REMAINING_THRESHOLD:.3f} y horizonte de pronóstico visible "
+        "hasta la última fecha meteorológica disponible."
     )
     return 0
 
