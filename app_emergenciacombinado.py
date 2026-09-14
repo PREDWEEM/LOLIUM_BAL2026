@@ -10,10 +10,12 @@ los resultados generados.
 from pathlib import Path
 
 from private_runtime import build_private_core_source
+from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_relativa
 
 
 _CORE_APP = Path(__file__).with_name("app_emergenciacombinado_core.py")
 _PRIVATE_CORE_SOURCE = build_private_core_source(_CORE_APP)
+_PRIVATE_CORE_SOURCE = parchear_visualizacion_intensidad_relativa(_PRIVATE_CORE_SOURCE)
 exec(
     compile(_PRIVATE_CORE_SOURCE, str(_CORE_APP), "exec"),
     globals(),
