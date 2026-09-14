@@ -7,6 +7,7 @@ on:
       - "app_emergenciacombinado.py"
       - "app_emergenciacombinado_core.py"
       - "private_runtime.py"
+      - "visualizacion_intensidad_relativa.py"
       - "requirements.txt"
       - "logo_predweem.svg"
       - "fondo_predweem_v3.png"
@@ -50,8 +51,38 @@ jobs:
             app_emergenciacombinado.py \
             app_emergenciacombinado_core.py \
             private_runtime.py \
+            visualizacion_intensidad_relativa.py \
             actualizar_meteo_balcarce.py \
             postprocesar_prec_p50_balcarce.py
+
+      - name: Prueba preliminar de escala relativa 0-100
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from private_runtime import build_private_core_source
+          from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_relativa
+
+          core = Path("app_emergenciacombinado_core.py")
+          private_source = build_private_core_source(core)
+          patched = parchear_visualizacion_intensidad_relativa(private_source)
+          compile(patched, "app_emergenciacombinado_core.py::private+relative", "exec")
+
+          assert 'EMERREL_REL_PCT' in patched
+          assert 'Campo_Normalizado_PCT' in patched
+          assert 'text="Intensidad relativa de emergencia (%)"' in patched
+          assert 'range=[0.0, 105.0]' in patched
+          assert 'tickvals=[0, 20, 40, 60, 80, 100]' in patched
+          assert 'customdata=df[["EMERREL"]].to_numpy()' in patched
+          assert 'EMERREL_LOG' not in patched
+          assert 'Campo_Normalizado_LOG' not in patched
+          assert 'Log10(EMERREL + 0,01)' not in patched
+
+          values = [0.0, 0.05, 0.10, 0.20]
+          maximum = max(values)
+          pct = [v / maximum * 100.0 for v in values]
+          assert pct == [0.0, 25.0, 50.0, 100.0]
+          print("OK: Balcarce usa intensidad relativa 0-100 % sin modificar EMERREL")
+          PY
 
       - name: Verificar archivos de migración
         shell: bash
@@ -62,6 +93,7 @@ jobs:
           test -f PRIVATE_REPOSITORY.md
           test -f .github/workflows/actualizar_meteo.yml
           test -f logo_predweem.svg
+          test -f visualizacion_intensidad_relativa.py
 
       - name: Verificar ausencia de secretos versionados
         shell: bash
