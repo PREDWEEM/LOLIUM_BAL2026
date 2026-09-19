@@ -207,7 +207,13 @@ def procesar_ens(datos: dict[str, Any]) -> pd.DataFrame:
 
 
 def cargar_ens() -> pd.DataFrame:
-    datos = base.consultar_ecmwf_ens(); pron = procesar_ens(datos)
+    if base.hoy_argentina() > base.CAMPANIA_END:
+        return pd.DataFrame(columns=COLUMNAS)
+    datos = base.consultar_ecmwf_ens()
+    pron = procesar_ens(datos)
+    pron = pron.loc[
+        pd.to_datetime(pron["Fecha"]).dt.date <= base.CAMPANIA_END
+    ].copy()
     base.DIRECTORIO_PRONOSTICOS.mkdir(parents=True, exist_ok=True)
     marca = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     base.escribir_csv_atomico(pron, base.DIRECTORIO_PRONOSTICOS / f"ecmwf_ifs_ens_025_balcarce_{marca}.csv")
@@ -225,6 +231,8 @@ def validar(df: pd.DataFrame, fin: date) -> None:
     fechas = pd.to_datetime(df["Fecha"], errors="coerce")
     if fechas.isna().any():
         raise ValueError("Hay fechas inválidas en la serie final.")
+    if (fechas.dt.date > base.CAMPANIA_END).any():
+        raise ValueError("Hay fechas posteriores al cierre de campaña.")
     if fechas.duplicated().any():
         raise ValueError("Hay fechas duplicadas: " + resumen(fechas[fechas.duplicated()].dt.strftime("%Y-%m-%d").tolist()))
     c = df[["TMAX","TMIN","TMEDIA","Prec"]].apply(pd.to_numeric, errors="coerce")
@@ -248,20 +256,24 @@ def validar(df: pd.DataFrame, fin: date) -> None:
 
 
 def ejecutar() -> pd.DataFrame:
-    hoy = base.hoy_argentina(); ayer = hoy - timedelta(days=1)
+    hoy = base.hoy_argentina()
+    ayer = min(hoy - timedelta(days=1), base.CAMPANIA_END)
     obs, estado_siga = base.obtener_siga_dataframe(base.CAMPANIA_START, ayer)
     obs, tmedia_derivada, obs_descartadas = depurar_observaciones(obs)
     faltantes = fechas_faltantes(obs, base.CAMPANIA_START, ayer); rs = rangos(faltantes)
     bloques = [cargar_provisional(i,f) for i,f in rs]
     prov = columnas(pd.concat(bloques, ignore_index=True)) if bloques else pd.DataFrame(columns=COLUMNAS)
     pron = cargar_ens(); pron = pron.loc[pd.to_datetime(pron["Fecha"]).dt.date >= hoy].copy()
+    if pron.empty and hoy <= base.CAMPANIA_END:
+        raise ValueError("ECMWF ENS no devolvió filas desde la fecha actual.")
     todo = columnas(pd.concat([obs,prov,pron], ignore_index=True)); todo["Fecha_dt"] = pd.to_datetime(todo["Fecha"], errors="coerce")
     todo["_p"] = todo["TipoDato"].map({"Observado":0,"Provisional":1,"Pronostico":2}).fillna(9)
     todo = todo.dropna(subset=["Fecha_dt"]).sort_values(["Fecha_dt","_p"]).drop_duplicates("Fecha_dt", keep="first").sort_values("Fecha_dt")
-    fin = pd.to_datetime(pron["Fecha"]).max().date(); todo = todo.loc[(todo["Fecha_dt"].dt.date >= base.CAMPANIA_START) & (todo["Fecha_dt"].dt.date <= fin)]
+    fin = pd.to_datetime(pron["Fecha"]).max().date() if not pron.empty else base.CAMPANIA_END
+    todo = todo.loc[(todo["Fecha_dt"].dt.date >= base.CAMPANIA_START) & (todo["Fecha_dt"].dt.date <= fin)]
     todo["Fecha"] = todo["Fecha_dt"].dt.strftime("%Y-%m-%d"); todo = columnas(todo.drop(columns=["Fecha_dt","_p"])).reset_index(drop=True)
     validar(todo, fin); base.escribir_csv_atomico(todo, base.ARCHIVO_MAESTRO_DEFAULT)
-    estado = {"ejecucion_utc": base.fecha_utc_iso(), "sitio":"Balcarce", "latitud":base.LATITUD, "longitud":base.LONGITUD, "estacion_siga":"A872824", "estado_siga":estado_siga, "ultima_observacion_siga":str(obs["Fecha"].max()), "tmedia_siga_derivada":tmedia_derivada, "observaciones_siga_descartadas":obs_descartadas, "huecos_siga":[x.isoformat() for x in faltantes], "rangos_provisionales":[{"inicio":i.isoformat(),"fin":f.isoformat()} for i,f in rs], "fuente_provisional":"ECMWF_IFS_HISTORICO" if len(prov) else None, "filas_provisionales":len(prov), "fuente_pronostico":"ECMWF_IFS_ENS_025", "estadistico_operativo":"P50", "inicio_pronostico":str(pron["Fecha"].min()), "fin_pronostico":str(pron["Fecha"].max()), "miembros_validos_min":int(pd.to_numeric(pron["N_miembros"]).min()), "huecos_finales":huecos(todo,base.CAMPANIA_START,fin)}
+    estado = {"ejecucion_utc": base.fecha_utc_iso(), "sitio":"Balcarce", "latitud":base.LATITUD, "longitud":base.LONGITUD, "estacion_siga":"A872824", "estado_siga":estado_siga, "ultima_observacion_siga":str(obs["Fecha"].max()), "tmedia_siga_derivada":tmedia_derivada, "observaciones_siga_descartadas":obs_descartadas, "huecos_siga":[x.isoformat() for x in faltantes], "rangos_provisionales":[{"inicio":i.isoformat(),"fin":f.isoformat()} for i,f in rs], "fuente_provisional":"ECMWF_IFS_HISTORICO" if len(prov) else None, "filas_provisionales":len(prov), "fecha_fin_campania":base.CAMPANIA_END.isoformat(), "fuente_pronostico":"ECMWF_IFS_ENS_025" if len(pron) else None, "estadistico_operativo":"P50", "inicio_pronostico":str(pron["Fecha"].min()) if len(pron) else None, "fin_pronostico":str(pron["Fecha"].max()) if len(pron) else None, "miembros_validos_min":int(pd.to_numeric(pron["N_miembros"]).min()) if len(pron) else None, "huecos_finales":huecos(todo,base.CAMPANIA_START,fin)}
     base.ARCHIVO_ESTADO.parent.mkdir(parents=True, exist_ok=True); base.ARCHIVO_ESTADO.write_text(json.dumps(estado,ensure_ascii=False,indent=2),encoding="utf-8")
     print(f"✅ SIGA={len(obs)}; provisionales={len(prov)}; pronóstico={len(pron)}")
     return todo

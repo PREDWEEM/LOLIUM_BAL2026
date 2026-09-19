@@ -46,6 +46,17 @@ Antes de guardar `meteo_daily.csv`, GitHub Actions comprueba continuidad diaria,
 
 El workflow **Verificar despliegue privado** valida el checkout, pero ignora los commits que solo actualizan `meteo_daily.csv` o `data/**`, reduciendo el consumo de minutos de GitHub Actions.
 
+### Fin de carga de la campaña 2026
+
+La última fecha meteorológica es el **1 de octubre de 2026, inclusive**.
+El pronóstico de siete días se recorta al alcanzar ese límite, tanto en la
+serie operativa como en los nuevos archivos de pronóstico. Desde el 2 de
+octubre no se consulta el ensamble; las actualizaciones de SIGA y del puente
+provisional quedan limitadas al 1 de octubre, permitiendo incorporar la
+observación de ese día cuando se publique y reemplazar datos provisionales.
+La validación admite una serie cerrada sin pronóstico y rechaza fechas
+posteriores al cierre. Los archivos históricos existentes se conservan.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.

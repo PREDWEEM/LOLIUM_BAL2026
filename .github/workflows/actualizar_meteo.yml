@@ -59,6 +59,7 @@ jobs:
           from pathlib import Path
           import numpy as np
           import pandas as pd
+          from actualizar_meteo_balcarce import CAMPANIA_END
 
           archivo = Path("meteo_daily.csv")
           estado_path = Path("data/estado_actualizacion_meteo.json")
@@ -98,7 +99,9 @@ jobs:
           obs = df["TipoDato"].astype(str).eq("Observado")
           prov = df["TipoDato"].astype(str).eq("Provisional")
           pron = df["TipoDato"].astype(str).eq("Pronostico")
-          if not pron.any():
+          if (df["Fecha"].dt.date > CAMPANIA_END).any():
+              raise SystemExit("Hay fechas posteriores al 1 de octubre de 2026.")
+          if not pron.any() and hoy.date() <= CAMPANIA_END:
               raise SystemExit("No hay filas de pronóstico.")
           if (df.loc[obs | prov, "Fecha"] >= hoy).any() or (df.loc[pron, "Fecha"] < hoy).any():
               raise SystemExit("Hay filas ubicadas en un tramo temporal incorrecto.")

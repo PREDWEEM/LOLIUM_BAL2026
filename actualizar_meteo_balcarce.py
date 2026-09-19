@@ -36,6 +36,7 @@ LONGITUD = float(os.getenv("LONGITUD", "-58.2999"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
 CAMPANIA_START = date(2026, 1, 1)
+CAMPANIA_END = date(2026, 10, 1)  # Última fecha meteorológica, inclusive.
 HORIZONTE_DIAS = 7
 TBASE = 2.0
 
@@ -406,6 +407,7 @@ def normalizar_dataframe_siga(tabla: pd.DataFrame, fecha_limite_exclusiva: date)
 
 
 def obtener_siga_dataframe(fecha_inicio: date, fecha_fin: date, archivo_forzado: Path | None = None) -> tuple[pd.DataFrame, str]:
+    fecha_fin = min(fecha_fin, CAMPANIA_END)
     errores: list[str] = []
 
     if SIGA_URL_TEMPLATE and archivo_forzado is None:
@@ -569,8 +571,13 @@ def procesar_ecmwf_ens(datos: dict[str, Any]) -> pd.DataFrame:
 
 
 def cargar_pronostico_ecmwf() -> pd.DataFrame:
+    if hoy_argentina() > CAMPANIA_END:
+        return pd.DataFrame(columns=COLUMNAS_COMPLETAS)
     datos = consultar_ecmwf_ens()
     pronostico = procesar_ecmwf_ens(datos)
+    pronostico = pronostico.loc[
+        pd.to_datetime(pronostico["Fecha"]).dt.date <= CAMPANIA_END
+    ].copy()
     DIRECTORIO_PRONOSTICOS.mkdir(parents=True, exist_ok=True)
     marca = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archivo = DIRECTORIO_PRONOSTICOS / f"ecmwf_ifs_ens_025_balcarce_{marca}.csv"
@@ -593,6 +600,7 @@ def leer_maestro_existente(path: Path) -> pd.DataFrame:
 
 
 def calcular_huecos_observados(observaciones: pd.DataFrame, hasta_exclusivo: date) -> list[str]:
+    hasta_exclusivo = min(hasta_exclusivo, CAMPANIA_END + timedelta(days=1))
     if hasta_exclusivo <= CAMPANIA_START:
         return []
     esperadas = pd.date_range(CAMPANIA_START, hasta_exclusivo - timedelta(days=1), freq="D").strftime("%Y-%m-%d")
@@ -602,7 +610,7 @@ def calcular_huecos_observados(observaciones: pd.DataFrame, hasta_exclusivo: dat
 
 def construir_meteo_daily(output: Path = ARCHIVO_MAESTRO_DEFAULT, siga_file: Path | None = None) -> pd.DataFrame:
     hoy = hoy_argentina()
-    ayer = hoy - timedelta(days=1)
+    ayer = min(hoy - timedelta(days=1), CAMPANIA_END)
 
     observaciones, estado_siga = obtener_siga_dataframe(CAMPANIA_START, ayer, archivo_forzado=siga_file)
 
@@ -627,6 +635,7 @@ def construir_meteo_daily(output: Path = ARCHIVO_MAESTRO_DEFAULT, siga_file: Pat
     combinado = asegurar_columnas(combinado)
     combinado["Fecha_dt"] = pd.to_datetime(combinado["Fecha"], errors="coerce")
     combinado = combinado.dropna(subset=["Fecha_dt"])
+    combinado = combinado.loc[combinado["Fecha_dt"].dt.date <= CAMPANIA_END].copy()
 
     prioridad = combinado["TipoDato"].map({"Observado": 0, "Pronostico": 1}).fillna(2)
     combinado["_prioridad"] = prioridad
@@ -667,7 +676,7 @@ def construir_meteo_daily(output: Path = ARCHIVO_MAESTRO_DEFAULT, siga_file: Pat
 
 def validar_siga(siga_file: Path | None = None) -> None:
     hoy = hoy_argentina()
-    ayer = hoy - timedelta(days=1)
+    ayer = min(hoy - timedelta(days=1), CAMPANIA_END)
     observaciones, estado_siga = obtener_siga_dataframe(CAMPANIA_START, ayer, archivo_forzado=siga_file)
     print(f"✅ SIGA válido: {estado_siga}")
     print(f"Filas: {len(observaciones)}")
