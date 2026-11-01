@@ -455,6 +455,9 @@ def obtener_siga_dataframe(fecha_inicio: date, fecha_fin: date, archivo_forzado:
             print("📦 Utilizando caché observado de SIGA.")
             cache = pd.read_csv(ARCHIVO_SIGA_CACHE, parse_dates=["Fecha"])
             cache = asegurar_columnas(cache)
+            # una caché vacía (comienzo de campaña) se lee sin tipo fecha
+            cache["Fecha"] = pd.to_datetime(cache["Fecha"], errors="coerce")
+            cache = cache.dropna(subset=["Fecha"])
             cache = cache.loc[(cache["Fecha"].dt.date >= CAMPANIA_START)
                               & (cache["Fecha"].dt.date < fecha_fin + timedelta(days=1))].copy()
             cache["Fecha"] = cache["Fecha"].dt.strftime("%Y-%m-%d")
