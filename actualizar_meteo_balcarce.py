@@ -35,8 +35,24 @@ LATITUD = float(os.getenv("LATITUD", "-37.7664"))
 LONGITUD = float(os.getenv("LONGITUD", "-58.2999"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
-CAMPANIA_START = date(2026, 1, 1)
-CAMPANIA_END = date(2026, 10, 1)  # Última fecha meteorológica, inclusive.
+
+
+def _campania_vigente() -> tuple[date, date]:
+    """Campaña meteorológica operativa: del 1 de enero al 1 de octubre del año en curso (hora de Argentina).
+
+    Del 2 de octubre al 31 de diciembre la campaña del año queda cerrada (la serie se conserva sin pronóstico) y el
+    1 de enero comienza automáticamente la carga de la campaña nueva; mientras SIGA no publica días del año, el puente
+    provisional ECMWF los cubre. Las variables de entorno CAMPANIA_INICIO y CAMPANIA_FIN (AAAA-MM-DD) permiten fijar
+    otras fechas.
+    """
+    hoy = datetime.now(ZoneInfo(ZONA_HORARIA)).date()
+    inicio = os.getenv("CAMPANIA_INICIO", "").strip()
+    fin = os.getenv("CAMPANIA_FIN", "").strip()
+    return (date.fromisoformat(inicio) if inicio else date(hoy.year, 1, 1),
+            date.fromisoformat(fin) if fin else date(hoy.year, 10, 1))
+
+
+CAMPANIA_START, CAMPANIA_END = _campania_vigente()  # CAMPANIA_END: última fecha meteorológica, inclusive.
 HORIZONTE_DIAS = 7
 TBASE = 2.0
 
@@ -439,7 +455,8 @@ def obtener_siga_dataframe(fecha_inicio: date, fecha_fin: date, archivo_forzado:
             print("📦 Utilizando caché observado de SIGA.")
             cache = pd.read_csv(ARCHIVO_SIGA_CACHE, parse_dates=["Fecha"])
             cache = asegurar_columnas(cache)
-            cache = cache.loc[cache["Fecha"].dt.date < fecha_fin + timedelta(days=1)].copy()
+            cache = cache.loc[(cache["Fecha"].dt.date >= CAMPANIA_START)
+                              & (cache["Fecha"].dt.date < fecha_fin + timedelta(days=1))].copy()
             cache["Fecha"] = cache["Fecha"].dt.strftime("%Y-%m-%d")
             return cache, "SIGA_cache"
         except Exception as error:
