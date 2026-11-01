@@ -46,9 +46,9 @@ Antes de guardar `meteo_daily.csv`, GitHub Actions comprueba continuidad diaria,
 
 El workflow **Verificar despliegue privado** valida el checkout, pero ignora los commits que solo actualizan `meteo_daily.csv` o `data/**`, reduciendo el consumo de minutos de GitHub Actions.
 
-### Fin de carga de la campaña 2026
+### Fin de carga de cada campaña
 
-La última fecha meteorológica es el **1 de octubre de 2026, inclusive**.
+La última fecha meteorológica de cada campaña es el **1 de octubre, inclusive** (en 2026, el 1/10/2026).
 El pronóstico de siete días se recorta al alcanzar ese límite, tanto en la
 serie operativa como en los nuevos archivos de pronóstico. Desde el 2 de
 octubre no se consulta el ensamble; las actualizaciones de SIGA y del puente
@@ -56,6 +56,44 @@ provisional quedan limitadas al 1 de octubre, permitiendo incorporar la
 observación de ese día cuando se publique y reemplazar datos provisionales.
 La validación admite una serie cerrada sin pronóstico y rechaza fechas
 posteriores al cierre. Los archivos históricos existentes se conservan.
+
+## Alerta de flushes
+
+La página muestra la **alerta de flushes** de *Lolium multiflorum*: la probabilidad de que en los próximos 7 días emerja
+≥ 5 % de la campaña, con dos niveles (*Atención* desde 15 %, *Alerta* desde 25 %), la emergencia acumulada esperada y la
+ventana de control post-emergente (600–800 °Cd desde el inicio). El modelo (`alerta_lolmu.py`, `alerta_lolmu_params.json`,
+`visualizacion_alerta_lolmu.py`) es el calibrado con 17 campañas de Bordenave, con dos ajustes propios de Balcarce, donde la
+emergencia se concentra más:
+
+1. **Calendario de Balcarce** (`calendario_local.py`, pool 2014, 2025 y 2026 en `data/campanias/`, sin la campaña en curso)
+   en la señal de calendario y en la curva acumulada.
+2. **Agotamiento de la cohorte**: desde la fecha de las primeras plántulas, la probabilidad se multiplica por
+   `1 − 0,4·(1 − exp[−(t/3,57)^0,487])` (forma Weibull del motor de Balcarce, intensidad atenuada 0,4).
+
+**Validación** (2014, 2025 y 2026 con clima SIGA de la EEA Balcarce; 82 intervalos semanales, 10 con flush; cada campaña con el
+calendario de las otras):
+
+| Configuración (con primeras plántulas) | AUC | Flushes en *Alerta* | Falsas alarmas |
+|---|---|---|---|
+| Alerta de Bordenave sin ajustes | 0,94 | 9/10 | 19/72 |
+| Calendario de Balcarce | 0,94 | 9/10 | 10/72 |
+| **Calendario de Balcarce + agotamiento 0,4 (implementada)** | **0,96** | **9/10** | **6/72** |
+| Calendario de Balcarce + agotamiento del motor (0,95) | 0,97 | 4/10 | 0/72 |
+
+Con la intensidad del motor (0,95) la alerta no anticipaba los flushes que siguen al primero (en 2025 continuaron cinco
+semanas). Límites: tres campañas, con las que también se eligió la intensidad; 2025 es una curva procesada; en 2014 faltan
+datos de clima del 15 al 21/03.
+
+La barra lateral conserva solo los parámetros que usa la alerta (temperaturas base, óptima y crítica, y objetivos 600 y
+800 °Cd); los del motor PREDWEEM quedan en sus valores por defecto (cobertura 10 %, Wmax 10 mm, decaimiento post-pico
+calibrado).
+
+## Campaña vigente y actualización automática
+
+La campaña meteorológica va del **1 de enero al 1 de octubre** de cada año (`_campania_vigente()` en
+`actualizar_meteo_balcarce.py`; las variables `CAMPANIA_INICIO` y `CAMPANIA_FIN` la fijan a mano). Después del 1 de octubre la
+serie queda cerrada; el **1 de enero siguiente** la carga se reinicia sola: mientras SIGA no publica días del año, el puente
+provisional ECMWF los cubre. La caché SIGA se limita a la campaña vigente.
 
 ## Condiciones de uso
 
