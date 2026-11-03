@@ -145,10 +145,10 @@ NOTA_BALCARCE = (
     "las primeras plántulas, la probabilidad se multiplica por el agotamiento de la cohorte con la forma Weibull del motor "
     "de Balcarce (τ 3,57 días, β 0,487) e intensidad 0,4: a los 7 días queda el 70 %, a los 30 días el 62 %.\n\n"
     "**Validación en Balcarce** (2014, 2025 y 2026 con clima SIGA de la EEA Balcarce, cada campaña con el calendario de las "
-    "otras; 82 intervalos semanales, 10 con flush). Con la fecha de primeras plántulas: AUC 0,96; 9 de 10 flushes en "
-    "*Alerta* y 6 falsas alarmas (8 % de las semanas sin flush). La alerta de Bordenave sin ajustes: AUC 0,94, 9 de 10 y 19 "
-    "falsas alarmas (seguía alertando después del primer flush). Con la intensidad del motor (0,95) no había falsas "
-    "alarmas, pero solo detectaba 4 de 10: en 2025 los flushes siguieron cinco semanas después del primero.\n\n"
+    "otras; 82 intervalos semanales, 10 con gran flujo). Con la fecha de primeras plántulas: AUC 0,96; 9 de 10 grandes flujos en "
+    "*Alerta* y 6 falsas alarmas (8 % de las semanas sin gran flujo). La alerta de Bordenave sin ajustes: AUC 0,94, 9 de 10 y 19 "
+    "falsas alarmas (seguía alertando después del primer gran flujo). Con la intensidad del motor (0,95) no había falsas "
+    "alarmas, pero solo detectaba 4 de 10: en 2025 los grandes flujos siguieron cinco semanas después del primero.\n\n"
     "**Límites en Balcarce.** Tres campañas; la intensidad 0,4 se eligió con ellas. 2025 es una curva procesada (sin conteos "
     "originales) y en 2014 faltan datos de clima del 15 al 21/03. El clima operativo es SIGA–INTA Balcarce."
 )
@@ -224,7 +224,7 @@ if isinstance(_resultados_alerta, dict) and _resultados_alerta:
     st.subheader("📥 Descarga de resultados")
     st.caption(
         "Excel con los resultados que muestra la app para la fecha de emisión elegida: resumen (nivel y probabilidad de "
-        "flush, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
+        "gran flujo, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
         "acumulada con su rango, tiempo térmico diario desde el inicio, conteos usados, clima, parámetros y validación."
     )
     st.download_button(
