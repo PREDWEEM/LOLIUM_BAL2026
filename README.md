@@ -95,6 +95,11 @@ La campaña meteorológica va del **1 de enero al 1 de octubre** de cada año (`
 serie queda cerrada; el **1 de enero siguiente** la carga se reinicia sola: mientras SIGA no publica días del año, el puente
 provisional ECMWF los cubre. La caché SIGA se limita a la campaña vigente.
 
+**Inicio de la curva.** Cuando se informa la fecha de las primeras plántulas (o hay un primer conteo con plántulas), la curva
+del calendario de Balcarce vale 0 antes de esa fecha, arranca ese día en la fracción típica ya emergida al ver las primeras
+plantas (~18 %) y desde ahí sigue el calendario reescalado. Error medio de la curva desde las primeras plántulas: 9,7 puntos,
+contra 6,9 con el calendario por fecha; se prefirió que la curva no suba antes del inicio informado.
+
 ## Aviso de flujos tardíos (ventana de siembra)
 
 Del 1 de mayo al 1 de julio la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
