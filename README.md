@@ -100,7 +100,7 @@ del calendario de Balcarce vale 0 antes de esa fecha, arranca ese día en la fra
 plantas (~18 %) y desde ahí sigue el calendario reescalado. Error medio de la curva desde las primeras plántulas: 9,7 puntos,
 contra 6,9 con el calendario por fecha; se prefirió que la curva no suba antes del inicio informado.
 
-## Aviso de flujos tardíos (ventana de siembra)
+## Aviso de flujos tardíos
 
 Del 1 de mayo al 1 de octubre la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
 emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas
