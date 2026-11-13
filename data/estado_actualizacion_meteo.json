@@ -1,10 +1,10 @@
 {
-  "ejecucion_utc": "2026-11-13T18:07:59+00:00",
+  "ejecucion_utc": "2026-11-13T23:46:13+00:00",
   "sitio": "Balcarce",
   "latitud": -37.7664,
   "longitud": -58.2999,
   "estacion_siga": "A872824",
-  "estado_siga": "SIGA_cache",
+  "estado_siga": "SIGA_remoto",
   "ultima_observacion_siga": "2026-10-01",
   "tmedia_siga_derivada": [
     "2026-04-22",
