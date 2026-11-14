@@ -16,6 +16,16 @@ PREDWEEM es una herramienta de apoyo a la toma de decisiones agronómicas basada
 
 La implementación de este repositorio está orientada a **Balcarce** y debe utilizarse considerando el dominio geográfico, climático y agronómico para el cual fue configurada, así como su estado específico de validación.
 
+## Sin motor PREDWEEM (noviembre de 2026)
+
+La página ya no ejecuta el motor PREDWEEM anterior (red neuronal y balance hídrico). Muestra solo la **alerta de grandes
+flujos** del paquete `lolium-comun` con el clima diario del repositorio (`meteo_daily.csv`): qué hacer esta semana,
+probabilidad de gran flujo, ventana del graminicida de barbecho, residual a la siembra, flujos tardíos y descarga en Excel.
+El inicio de la emergencia estimado por el motor (su primer pico) erró 12–14 días en promedio en 31 campañas-sitio, no
+mejor que una fecha fija, y la alerta ya no lo usaba: el reloj térmico parte de la fecha de primeras plántulas. El encabezado,
+la barra lateral, la lectura del clima y la descarga vienen de `lolium_comun.pagina`. Los archivos del motor (`*_core.py`,
+modelos `.npy`/`.pkl` y sus parches) quedan en el repositorio solo como referencia.
+
 ## Preparación para repositorio privado
 
 La aplicación fue acondicionada para ejecutarse desde un checkout privado:
@@ -84,9 +94,8 @@ Con la intensidad del motor (0,95) la alerta no anticipaba los flushes que sigue
 semanas). Límites: tres campañas, con las que también se eligió la intensidad; 2025 es una curva procesada; en 2014 faltan
 datos de clima del 15 al 21/03.
 
-La barra lateral conserva solo los parámetros que usa la alerta (temperaturas base, óptima y crítica, y objetivos 600 y
-800 °Cd); los del motor PREDWEEM quedan en sus valores por defecto (cobertura 10 %, Wmax 10 mm, decaimiento post-pico
-calibrado).
+La barra lateral tiene solo los parámetros que usa la alerta (temperaturas base, óptima y crítica, y objetivos 600 y
+800 °Cd).
 
 ## Campaña vigente y actualización automática
 
@@ -192,7 +201,7 @@ PREDWEEM es una herramienta de soporte para decisiones y no sustituye el diagnó
 
 La alerta, su visualización y el control de acceso son comunes a las 8 apps de Lolium y están en el paquete
 [PREDWEEM/LOLIUM-COMUN](https://github.com/PREDWEEM/LOLIUM-COMUN), fijado por versión en `requirements.txt`
-(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.4.1`). En esta app, `alerta_lolmu.py`,
+(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.5.0`). En esta app, `alerta_lolmu.py`,
 `visualizacion_alerta_lolmu.py` y `acceso_predweem.py` son archivos puente que cargan ese paquete con los parámetros de este
 sitio (`alerta_lolmu_params.json`), que siguen acá. Los cambios a la alerta se hacen en LOLIUM-COMUN y llegan a la app al
 actualizar la versión en `requirements.txt`.
