@@ -18,7 +18,7 @@ La aplicación científica original se conserva en ``app_emergenciacombinado_cor
 El motor sigue calculando como antes: su primer pico se usa como inicio estimado del reloj térmico hasta que se
 informa la fecha de las primeras plántulas.
 
-La alerta (``alerta_lolmu.py``) es la calibrada con 17 campañas de Bordenave, con dos ajustes propios de Balcarce,
+La alerta (``alerta_lolmu.py``) es la del paquete lolium-comun, con dos ajustes propios de Balcarce,
 donde la emergencia se concentra en un primer flush y después decae con fuerza:
 
 1. la señal de calendario usa el calendario de Balcarce (pool 2014, 2025 y 2026; ``calendario_local.py``), que
@@ -144,15 +144,15 @@ AGOTAMIENTO_BALCARCE = dict(
 )
 
 NOTA_BALCARCE = (
-    "**Ajustes de Balcarce.** En Balcarce la emergencia se concentra más que en Bordenave (mitad de la campaña hacia el "
+    "**Ajustes de Balcarce.** En Balcarce la emergencia se concentra más que en el calendario de referencia regional (mitad de la campaña hacia el "
     "15/03 y 90 % entre fines de marzo y principios de mayo; en 2026, el 76 % emergió entre el 12 y el 20/03). Por eso la "
-    "alerta de Bordenave se adapta en dos puntos: (1) la señal de calendario y la curva acumulada usan el calendario de "
+    "alerta general se adapta en dos puntos: (1) la señal de calendario y la curva acumulada usan el calendario de "
     "Balcarce (pool 2014, 2025 y 2026 del gemelo digital, sin la campaña en curso; `data/campanias/`); (2) desde la fecha de "
     "las primeras plántulas, la probabilidad se multiplica por el agotamiento de la cohorte con la forma Weibull del motor "
     "de Balcarce (τ 3,57 días, β 0,487) e intensidad 0,4: a los 7 días queda el 70 %, a los 30 días el 62 %.\n\n"
     "**Validación en Balcarce** (2014, 2025 y 2026 con clima SIGA de la EEA Balcarce, cada campaña con el calendario de las "
     "otras; 82 intervalos semanales, 10 con gran flujo). Con la fecha de primeras plántulas: AUC 0,96; 9 de 10 grandes flujos en "
-    "*Alerta* y 6 falsas alarmas (8 % de las semanas sin gran flujo). La alerta de Bordenave sin ajustes: AUC 0,94, 9 de 10 y 19 "
+    "*Alerta* y 6 falsas alarmas (8 % de las semanas sin gran flujo). La alerta general sin ajustes: AUC 0,94, 9 de 10 y 19 "
     "falsas alarmas (seguía alertando después del primer gran flujo). Con la intensidad del motor (0,95) no había falsas "
     "alarmas, pero solo detectaba 4 de 10: en 2025 los grandes flujos siguieron cinco semanas después del primero.\n\n"
     "**Límites en Balcarce.** Tres campañas; la intensidad 0,4 se eligió con ellas. 2025 es una curva procesada (sin conteos "
